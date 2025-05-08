@@ -55,7 +55,7 @@ def generate_self_signed_cert(cert_file='server.crt', key_file='server.key'):
     
     print(f"Self-signed certificate and key generated: {cert_file}, {key_file}")
 
-def create_tls_echo_server(host='localhost', port=8443):
+def create_tls_echo_server(host='0.0.0.0', port=8443):
     # 인증서와 키 생성
     generate_self_signed_cert()
     
