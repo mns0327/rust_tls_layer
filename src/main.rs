@@ -2,17 +2,15 @@
 // use std::net::TcpStream;
 
 mod db;
+mod rand;
+mod hash;
+use hash::sha256;
+use hash::{VecStructU8, hmac_sha256};
 
 fn main() -> std::io::Result<()> {
-    // let mut stream = TcpStream::connect("localhost:443")?;
-    
-    // stream.write_all(b"Hello, TLS client!")?;
-    let cipher = db::CipherSuite::from_u16(0x1301);
 
-    println!("{}", cipher.unwrap());
-    let cipher = db::CipherSuite::to_u16(cipher.unwrap());
-
-    println!("0x{:04X}", cipher);
-
+    // let tls = db::TLS::new();
+    let value = hmac_sha256(vec![0x61], vec![0x62]);
+    println!("{:?}", value.hex_display());
     Ok(())
 }
