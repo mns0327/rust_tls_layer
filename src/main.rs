@@ -11,8 +11,8 @@ fn main() -> std::io::Result<()> {
 
     let tls = db::TLS::new();
 
-    // let value = rand().to_vec();
-    println!("{:?}", tls.to_vec().hex_display());
+    println!("{}", tls);
+    println!("--------------------------------");
     let mut stream = TcpStream::connect("google.com:443")?;
 
     let mut buffer: Vec<u8> = [0 as u8; 128].to_vec();
@@ -20,6 +20,9 @@ fn main() -> std::io::Result<()> {
     stream.write(&tls.to_vec())?;
     stream.read(&mut buffer)?;
     println!("{}", buffer.hex_display());
-    println!("{:?}", tls.handshake.random.to_vec().hex_display());
+    
+    let tls = db::TLS::from_vec(buffer.to_vec());
+    println!("--------------------------------");
+    println!("{}", tls);
     Ok(())
 }
