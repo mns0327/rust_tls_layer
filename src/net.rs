@@ -1,9 +1,15 @@
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use crate::db::TLS;
 use std::io::Error;
+use crate::db::TLSPlaintext;
+use crate::hash::VecStructU8;
 
-pub fn read_tls(stream: &mut TcpStream) -> Result<TLS, Error> {
+pub fn write_tls(stream: &mut TcpStream, tls: &mut TLSPlaintext) -> Result<(), Error> {
+    stream.write(&tls.to_vec())?;
+    Ok(())
+}
+
+pub fn read_tls(stream: &mut TcpStream) -> Result<TLSPlaintext, Error> {
     // handshake 
     let mut buffer: Vec<u8> = [0 as u8; 5].to_vec();
     stream.read(&mut buffer)?;
@@ -11,6 +17,6 @@ pub fn read_tls(stream: &mut TcpStream) -> Result<TLS, Error> {
     let mut handshake_buffer: Vec<u8> = vec![0 as u8; handshake_len as usize];
     stream.read(&mut handshake_buffer)?;
     buffer.extend(handshake_buffer);
-    Ok(TLS::from_vec(buffer))
+    Ok(TLSPlaintext::from_vec(buffer))
 }
 
