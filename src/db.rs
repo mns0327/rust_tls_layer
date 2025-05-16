@@ -145,7 +145,7 @@ impl ApplicationData {
 }
 
 #[derive(Debug)]
-enum TLSFragment {
+pub enum TLSFragment {
     ChangeCipherSpec(ChangeCipherSpec),
     Alert(Alert),
     Handshake(Handshake),
@@ -173,7 +173,7 @@ pub struct TLSPlaintext {
     content_type: ContentType,
     version: ProtocolVersion,
     pub length: u16,
-    fragment: TLSFragment,
+    pub fragment: TLSFragment,
 }
 
 impl TLSPlaintext {

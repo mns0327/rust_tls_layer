@@ -26,9 +26,9 @@ impl VecCertificateSequence for Vec<u8> {
 
 #[derive(Debug)]
 pub struct Certificate {
-    tbsCertificate: TBSCertificate,
-    signatureAlgorithm: AlgorithmIdentifier,
-    signatureValue: Vec<u8>,
+    pub tbsCertificate: TBSCertificate,
+    pub signatureAlgorithm: AlgorithmIdentifier,
+    pub signatureValue: Vec<u8>,
 }
 
 impl Certificate {
@@ -53,14 +53,14 @@ impl Certificate {
 pub struct TBSCertificate {
     version: u8,
     serialNumber: Vec<u8>,
-    signature: AlgorithmIdentifier,
-    issuer: String,
-    validity: Validity,
-    subject: String,
-    subject_public_key_info: SubjectPublicKeyInfo,
-    issuerUniqueID: Option<Vec<u8>>,
-    subjectUniqueID: Option<Vec<u8>>,
-    extensions: Extensions,
+    pub signature: AlgorithmIdentifier,
+    pub issuer: String,
+    pub validity: Validity,
+    pub subject: String,
+    pub subject_public_key_info: SubjectPublicKeyInfo,
+    pub issuerUniqueID: Option<Vec<u8>>,
+    pub subjectUniqueID: Option<Vec<u8>>,
+    pub extensions: Extensions,
 }
 
 impl TBSCertificate {
@@ -136,6 +136,12 @@ struct Extensions {
 }
 
 #[derive(Debug)]
+pub struct PublicKey {
+    pub n: Vec<u8>,
+    pub e: Vec<u8>,
+}
+
+#[derive(Debug)]
 struct Extension {
     oid: String,
     critical: bool,
@@ -143,9 +149,9 @@ struct Extension {
 }
 
 #[derive(Debug)]
-struct SubjectPublicKeyInfo {
-    algorithm: AlgorithmIdentifier,
-    publicKey: Vec<u8>,
+pub struct SubjectPublicKeyInfo {
+    pub algorithm: AlgorithmIdentifier,
+    pub publicKey: PublicKey,
 }
 
 impl SubjectPublicKeyInfo {
@@ -154,13 +160,27 @@ impl SubjectPublicKeyInfo {
 
         let algorithm = AlgorithmIdentifier::parse_from_parser(&mut seq);
         let (bit_str, _) = seq.parse_bit_string();
+
+        let (n, e) = parse_public_key(&bit_str);
         
         Self {
             algorithm,
-            publicKey: bit_str.to_vec(),
+            publicKey: PublicKey { n, e },
         }
     }
 }
+
+pub fn parse_public_key(publicKey: &[u8]) -> (Vec<u8>, Vec<u8>) {
+    let mut publicKey_seq = ASN1Parser::new(publicKey)
+        .parse_sequence();
+    
+
+    let (_, _, n) = publicKey_seq.read_tlv();
+    let (_, _, e) = publicKey_seq.read_tlv();
+
+    (n[1..].to_vec(), e.to_vec())
+}
+
 pub struct ASN1Parser<'a> {
     pub data: &'a [u8],
     pub offset: usize,

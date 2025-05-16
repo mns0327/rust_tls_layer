@@ -158,7 +158,7 @@ impl HandshakeServerHello {
 pub struct Handshake {
     msg_type: HandshakeType,
     length: u32,    // u24
-    fragment: HandshakeFragment,
+    pub fragment: HandshakeFragment,
 }
 
 impl Handshake {
@@ -199,9 +199,9 @@ impl Handshake {
 }
 
 #[derive(Debug)]
-struct HandshakeCertificate {
+pub struct HandshakeCertificate {
     length: u32,
-    tbsCertificate: Vec<Certificate>,
+    pub tbsCertificate: Vec<Certificate>,
 }
 
 impl HandshakeCertificate {

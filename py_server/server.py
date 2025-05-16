@@ -99,3 +99,13 @@ def create_tls_echo_server(host='0.0.0.0', port=8443):
 
 if __name__ == '__main__':
     create_tls_echo_server()
+
+
+
+def rsa_encrypt_raw_pkcs1(message: bytes, e: int, n: int) -> bytes:
+    """Encrypt with raw RSA and manual PKCS#1 v1.5 padding."""
+    k = (n.bit_length() + 7) // 8
+    padded = pkcs1_v1_5_pad(message, k)
+    m_int = int.from_bytes(padded, byteorder='big')
+    c_int = pow(m_int, e, n)
+    return c_int.to_bytes(k, byteorder='big')
