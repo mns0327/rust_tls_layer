@@ -19,7 +19,7 @@ define_enum_macro! {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum HandshakeFragment {
     // HelloRequest(HelloRequest),
     ClientHello(HandshakeClientHello),
@@ -27,9 +27,9 @@ pub enum HandshakeFragment {
     Certificate(HandshakeCertificate),
     // ServerKeyExchange(ServerKeyExchange),
     // CertificateRequest(CertificateRequest),
-    // ServerHelloDone(ServerHelloDone),
+    ServerHelloDone(ServerHelloDone),
     // CertificateVerify(CertificateVerify),
-    // ClientKeyExchange(ClientKeyExchange),
+    ClientKeyExchange(ClientKeyExchange),
     // Finished(Finished),
 }
 
@@ -38,6 +38,7 @@ impl HandshakeFragment {
         match self {
             HandshakeFragment::ClientHello(client_hello) => client_hello.to_vec(),
             // HandshakeFragment::ServerHello(server_hello) => server_hello.to_vec(),
+            HandshakeFragment::ClientKeyExchange(client_key_exchange) => client_key_exchange.to_vec(),
             _ => panic!("Unsupported handshake fragment: {:?}", self)
         }
     }
@@ -47,12 +48,14 @@ impl HandshakeFragment {
             HandshakeType::client_hello => HandshakeFragment::ClientHello(HandshakeClientHello::from_vec(vec)),
             HandshakeType::server_hello => HandshakeFragment::ServerHello(HandshakeServerHello::from_vec(vec)),
             HandshakeType::certificate => HandshakeFragment::Certificate(HandshakeCertificate::from_vec(vec)),
+            HandshakeType::server_hello_done => HandshakeFragment::ServerHelloDone(ServerHelloDone::new()),
             _ => panic!("Unsupported handshake fragment: {:?}", msg_type)
         };
         fragment
     }
 }
-#[derive(Debug)]
+
+#[derive(Debug, PartialEq, Eq)]
 struct HandshakeClientHello {
     version: ProtocolVersion,
     random: [u8; 32],
@@ -122,7 +125,7 @@ impl HandshakeClientHello {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 struct HandshakeServerHello {
     version: ProtocolVersion,
     random: [u8; 32],
@@ -154,9 +157,22 @@ impl HandshakeServerHello {
     }
 }
 
-#[derive(Debug)]
-pub struct Handshake {
+#[derive(Debug, PartialEq, Eq)]
+struct ServerHelloDone {
     msg_type: HandshakeType,
+    length: u32,
+    fragment: Vec<u8>,
+}
+
+impl ServerHelloDone {
+    pub fn new() -> Self {
+        Self { msg_type: HandshakeType::server_hello_done, length: 0, fragment: vec![] }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct Handshake {
+    pub msg_type: HandshakeType,
     length: u32,    // u24
     pub fragment: HandshakeFragment,
 }
@@ -171,6 +187,9 @@ impl Handshake {
             }
             HandshakeType::server_hello => {
                 HandshakeFragment::ServerHello(HandshakeServerHello::new())
+            }
+            HandshakeType::client_key_exchange => {
+                HandshakeFragment::ClientKeyExchange(ClientKeyExchange::new())
             }
             _ => {
                 panic!("Unsupported handshake type: {:?}", msg_type);
@@ -198,7 +217,7 @@ impl Handshake {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct HandshakeCertificate {
     length: u32,
     pub tbsCertificate: Vec<Certificate>,
@@ -231,5 +250,30 @@ impl HandshakeCertificate {
         }
 
         Self { length: certificate_length, tbsCertificate: tbs_certificates }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct ClientKeyExchange {
+    pub length: u32,
+    pub fragment: Vec<u8>,
+}
+
+impl ClientKeyExchange {
+    pub fn new() -> Self {
+        Self { length: 0, fragment: vec![] }
+    }
+
+    pub fn from_key(key: Vec<u8>) -> Self {
+        let length = key.len() as u32;
+        let fragment = key;
+        Self { length, fragment }
+    }
+
+    pub fn to_vec(&self) -> Vec<u8> {
+        let mut vec: Vec<u8> = Vec::new();
+        vec.extend(u16::to_be_bytes(self.fragment.len() as u16));
+        vec.extend(self.fragment.clone());
+        vec
     }
 }

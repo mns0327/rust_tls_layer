@@ -1,9 +1,9 @@
 use std::fmt::{self, write};
 use crate::rand::rand;
 use crate::hash::{VecStructU8, hmac_sha256};
-use crate::handshake::{HandshakeType, Handshake};
+use crate::handshake::{HandshakeType, Handshake, ClientKeyExchange, HandshakeFragment};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ProtocolVersion {
     pub major: u8,
     pub minor: u8,
@@ -110,7 +110,7 @@ define_enum_macro!(
     }
 );
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 struct ChangeCipherSpec {
 
 }
@@ -121,7 +121,7 @@ impl ChangeCipherSpec {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 struct Alert {
 
 }
@@ -133,7 +133,7 @@ impl Alert {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 struct ApplicationData {
 
 }
@@ -144,7 +144,7 @@ impl ApplicationData {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum TLSFragment {
     ChangeCipherSpec(ChangeCipherSpec),
     Alert(Alert),
@@ -196,12 +196,25 @@ impl TLSPlaintext {
         }
     }
 
+    pub fn new_handshake_client_key_exchange(version: ProtocolVersion, key: Vec<u8>) -> Self {
+        let mut fragment = ClientKeyExchange::from_key(key);
+        let mut handshake = Handshake::new(16);
+        handshake.fragment = HandshakeFragment::ClientKeyExchange(fragment);
+        Self { 
+            content_type: ContentType::handshake, 
+            version, 
+            length: 0, 
+            fragment: TLSFragment::Handshake(handshake)
+        }
+    }
+
     pub fn to_vec(&mut self) -> Vec<u8> {
         self.length = self.fragment.to_vec().len() as u16;
 
         let mut vec: Vec<u8> = Vec::new();
         vec.extend([self.content_type.to_vec()[1]]);
         vec.extend(self.version.to_vec());
+
         vec.extend(u16::to_be_bytes(self.length));
         vec.extend(self.fragment.to_vec());
         vec

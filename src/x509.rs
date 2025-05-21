@@ -24,7 +24,7 @@ impl VecCertificateSequence for Vec<u8> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Certificate {
     pub tbsCertificate: TBSCertificate,
     pub signatureAlgorithm: AlgorithmIdentifier,
@@ -49,7 +49,7 @@ impl Certificate {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct TBSCertificate {
     version: u8,
     serialNumber: Vec<u8>,
@@ -99,7 +99,7 @@ impl TBSCertificate {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 struct AlgorithmIdentifier {
     algorithm: String,
     parameters: Option<Vec<u8>>,
@@ -124,31 +124,31 @@ impl AlgorithmIdentifier {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 struct Validity {
     notBefore: String,
     notAfter: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 struct Extensions {
     extensions: Vec<Extension>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct PublicKey {
     pub n: Vec<u8>,
     pub e: Vec<u8>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 struct Extension {
     oid: String,
     critical: bool,
     value: Vec<u8>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct SubjectPublicKeyInfo {
     pub algorithm: AlgorithmIdentifier,
     pub publicKey: PublicKey,
