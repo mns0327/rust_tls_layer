@@ -56,12 +56,12 @@ impl HandshakeFragment {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-struct HandshakeClientHello {
+pub struct HandshakeClientHello {
     version: ProtocolVersion,
-    random: [u8; 32],
-    session_id: [u8; 32],
-    cipher_suites: Vec<CipherSuite>,
-    compression_methods: Vec<CompressionMethod>,
+    pub random: [u8; 32],
+    pub session_id: [u8; 32],
+    pub cipher_suites: Vec<CipherSuite>,
+    pub compression_methods: Vec<CompressionMethod>,
 }
 
 impl HandshakeClientHello {
@@ -126,12 +126,12 @@ impl HandshakeClientHello {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-struct HandshakeServerHello {
+pub struct HandshakeServerHello {
     version: ProtocolVersion,
-    random: [u8; 32],
-    session_id: [u8; 32],
-    chosen_cipher: CipherSuite,
-    compression_method: CompressionMethod,
+    pub random: [u8; 32],
+    pub session_id: [u8; 32],
+    pub chosen_cipher: CipherSuite,
+    pub compression_method: CompressionMethod,
 }
 
 impl HandshakeServerHello {
@@ -158,7 +158,7 @@ impl HandshakeServerHello {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-struct ServerHelloDone {
+pub struct ServerHelloDone {
     msg_type: HandshakeType,
     length: u32,
     fragment: Vec<u8>,

@@ -85,14 +85,14 @@ pub fn sha256(msg: &mut Vec<u8>) -> Vec<u8> {
     h.to_u8_vec()
 }
 
-pub fn hmac_sha256(key: Vec<u8>, msg: Vec<u8>) -> Vec<u8> {
+pub fn hmac_sha256(key: &Vec<u8>, msg: &Vec<u8>) -> Vec<u8> {
     let block_size: usize = 64;
-    let mut key = key;
+    let mut key = key.clone();
     if key.len() > block_size {
         key = sha256(&mut key);
     }
 
-    for i in key.len()..block_size {
+    for _ in key.len()..block_size {
         key.push(0);
     }
     

@@ -1,4 +1,4 @@
-use crate::hash::VecStructU8;
+use crate::hash::{VecStructU8, hmac_sha256};
 use crate::rand::rand_len;
 use crate::bigint::BigInt;
 
@@ -16,7 +16,7 @@ impl RSA for Vec<u8> {
 
         let n = BigInt::new(n.to_vec());
         let e = BigInt::new(e.to_vec());
-        let padded = BigInt::new(padded);;
+        let padded = BigInt::new(padded);
 
         let encrypted = padded.mod_pow(&e, &n);
 
@@ -43,3 +43,18 @@ impl RSA for Vec<u8> {
     }
 }
 
+pub fn prf(secret: Vec<u8>, label: Vec<u8>, seed: Vec<u8>, length: usize) -> Vec<u8> {
+    let mut result: Vec<u8> = Vec::new();
+    let mut _seed = label;
+    _seed.extend(seed);
+    let mut tmp = hmac_sha256(&secret, &_seed);
+
+    while result.len() < length {
+        let mut new_seed = tmp.clone();
+        new_seed.extend(&_seed);
+        result.extend(hmac_sha256(&secret, &new_seed));
+        tmp = hmac_sha256(&secret, &tmp);
+    }
+    
+    result[0..length].to_vec()
+}

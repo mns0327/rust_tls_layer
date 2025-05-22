@@ -112,12 +112,15 @@ define_enum_macro!(
 
 #[derive(Debug, PartialEq, Eq)]
 struct ChangeCipherSpec {
-
 }
 
 impl ChangeCipherSpec {
     pub fn new() -> Self {
         Self {}
+    }
+
+    pub fn to_vec(&self) -> Vec<u8> {
+        vec![0x01]
     }
 }
 
@@ -155,7 +158,7 @@ pub enum TLSFragment {
 impl TLSFragment {
     pub fn to_vec(&mut self) -> Vec<u8> {
         match self {
-            // TLSFragment::ChangeCipherSpec(change_cipher_spec) => change_cipher_spec.to_vec(),
+            TLSFragment::ChangeCipherSpec(change_cipher_spec) => change_cipher_spec.to_vec(),
             // TLSFragment::Alert(alert) => alert.to_vec(),
             TLSFragment::Handshake(handshake) => handshake.to_vec(),
             // TLSFragment::ApplicationData(application_data) => application_data.to_vec(),
@@ -205,6 +208,15 @@ impl TLSPlaintext {
             version, 
             length: 0, 
             fragment: TLSFragment::Handshake(handshake)
+        }
+    }
+
+    pub fn new_change_cipher_spec() -> Self {
+        Self {
+            content_type: ContentType::change_cipher_spec,
+            version: ProtocolVersion::new(3, 3),
+            length: 0,
+            fragment: TLSFragment::ChangeCipherSpec(ChangeCipherSpec::new()),
         }
     }
 
