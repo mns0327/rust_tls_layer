@@ -8,7 +8,9 @@ mod db;
 mod net;
 mod handshake;
 mod crypto;
+mod block_cipher;
 mod bigint;
+mod aes_crypto;
 use crate::db::{TLSPlaintext, ProtocolVersion, CipherSuite, CompressionMethod, usizeToVec};
 use crate::rand::{rand, rand_len};
 use crate::hash::{VecStructU8, hmac_sha256};
@@ -64,58 +66,72 @@ fn main() -> std::io::Result<()> {
     println!("{:?}", client_key_exchange_tls);
     println!("--------------------------------");
 
-    // let mut change_cipher_spec_tls = TLSPlaintext::new_change_cipher_spec();
-    // net::write_tls(&mut stream, &mut change_cipher_spec_tls)?;
-    // println!("{:?}", change_cipher_spec_tls);
-    // println!("--------------------------------");
+    let mut change_cipher_spec_tls = TLSPlaintext::new_change_cipher_spec();
+    net::write_tls(&mut stream, &mut change_cipher_spec_tls)?;
+    println!("{:?}", change_cipher_spec_tls);
+    println!("--------------------------------");
 
-    // // TODO: Finished
-    // //verify_data = PRF(master_secret, "client finished", Hash(all_handshake_messages))[:12]
+    // TODO: Finished
+    //verify_data = PRF(master_secret, "client finished", Hash(all_handshake_messages))[:12]
 
-    // // TODO: tls manager struct 
-    // let mut premaster_secret: Vec<u8> = vec![0x03, 0x03, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11];
-    // let client_random: Vec<u8> = vec![0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa];
-    // let server_random: Vec<u8> = vec![0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb];
+    // TODO: tls manager struct 
+    let mut premaster_secret: Vec<u8> = vec![0x03, 0x03, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11];
+    let client_random: Vec<u8> = vec![0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa];
+    let server_random: Vec<u8> = vec![0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb];
 
-    // let mut seed: Vec<u8> = vec![];
-    // seed.extend(&client_random);
-    // seed.extend(&server_random);
+    let mut seed: Vec<u8> = vec![];
+    seed.extend(&client_random);
+    seed.extend(&server_random);
 
-    // let master_secret = crypto::prf(premaster_secret, b"master secret".to_vec(), seed, 48);
+    let master_secret = crypto::prf(premaster_secret, b"master secret".to_vec(), seed, 48);
 
-    // println!("{:?}", master_secret.hex_display());
+    println!("{:?}", master_secret.hex_display());
 
-    // let mut seed: Vec<u8> = vec![];
-    // seed.extend(&server_random);
-    // seed.extend(&client_random);
+    let mut seed: Vec<u8> = vec![];
+    seed.extend(&server_random);
+    seed.extend(&client_random);
 
-    // let key_block_len: usize = 20 + 20 + 16 + 16 + 16 + 16;
+    let key_block_len: usize = 20 + 20 + 16 + 16 + 16 + 16;
 
-    // let mut key_block: Vec<u8> = crypto::prf(master_secret, b"key expansion".to_vec(), seed, key_block_len);
+    let mut key_block: Vec<u8> = crypto::prf(master_secret.clone(), b"key expansion".to_vec(), seed, key_block_len);
 
-    // let client_master_key = key_block[0..20].to_vec();
-    // let server_master_key = key_block[20..40].to_vec();
-    // let client_write_key = key_block[40..56].to_vec();
-    // let server_write_key = key_block[56..72].to_vec();
-    // let client_write_iv = key_block[72..88].to_vec();
-    // let server_write_iv = key_block[88..104].to_vec();
+    let client_master_key = key_block[0..20].to_vec();
+    let server_master_key = key_block[20..40].to_vec();
+    let client_write_key = key_block[40..56].to_vec();
+    let server_write_key = key_block[56..72].to_vec();
+    let client_write_iv = key_block[72..88].to_vec();
+    let server_write_iv = key_block[88..104].to_vec();
     
-    // println!("{:?}", client_master_key.hex_display());
-    // println!("{:?}", server_master_key.hex_display());
-    // println!("{:?}", client_write_key.hex_display());
-    // println!("{:?}", server_write_key.hex_display());
-    // println!("{:?}", client_write_iv.hex_display());
-    // println!("{:?}", server_write_iv.hex_display());
+    println!("{:?}", client_master_key.hex_display());
+    println!("{:?}", server_master_key.hex_display());
+    println!("{:?}", client_write_key.hex_display());
+    println!("{:?}", server_write_key.hex_display());
+    println!("{:?}", client_write_iv.hex_display());
+    println!("{:?}", server_write_iv.hex_display());
 
-    // let mut handshake_message: Vec<u8> = vec![];
-    // handshake_message.extend(&client_hello_tls.to_vec());
-    // handshake_message.extend(&server_hello_tls.to_vec());
-    // handshake_message.extend(&certificate_tls.to_vec());
-    // handshake_message.extend(&client_key_exchange_tls.to_vec());
-    // handshake_message.extend(&server_hello_done_tls.to_vec());
+    let mut handshake_message: Vec<u8> = vec![];
+    handshake_message.extend(&client_hello_tls.to_vec());
+    handshake_message.extend(&server_hello_tls.to_vec());
+    handshake_message.extend(&certificate_tls.to_vec());
+    handshake_message.extend(&server_hello_done_tls.to_vec());
+    handshake_message.extend(&client_key_exchange_tls.to_vec());
 
-    // let hash_value = hash::sha256(&handshake_message);
-    // println!("{:?}", hash_value.hex_display());
+    let handshake_hash = hash::sha256(&handshake_message);
+
+    let verify_data = crypto::prf(master_secret.clone(), b"client finished".to_vec(), handshake_hash.clone(), 12);
+
+    println!("{:?}", verify_data.hex_display());
+
+    let mut finished_tls = TLSPlaintext::new_handshake_finished(ProtocolVersion::new(3, 3), verify_data);
+
+    println!("{:?}", finished_tls.to_vec().hex_display());
+    println!("--------------------------------");
+
+    let plaintext = b"hello world";
+    let key = b"0123456789abcdef";
+    let iv = b"";
+    let encrypted = aes_crypto::aes_encrypt(plaintext.to_vec(), key.to_vec(), iv.to_vec(), block_cipher::ECB_MODE);
+    println!("{:?}", encrypted.hex_display());
 
     Ok(())
 }

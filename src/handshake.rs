@@ -30,7 +30,7 @@ pub enum HandshakeFragment {
     ServerHelloDone(ServerHelloDone),
     // CertificateVerify(CertificateVerify),
     ClientKeyExchange(ClientKeyExchange),
-    // Finished(Finished),
+    Finished(Finished),
 }
 
 impl HandshakeFragment {
@@ -41,6 +41,7 @@ impl HandshakeFragment {
             HandshakeFragment::ClientKeyExchange(client_key_exchange) => client_key_exchange.to_vec(),
             HandshakeFragment::Certificate(certificate) => certificate.to_vec(),
             HandshakeFragment::ServerHelloDone(server_hello_done) => server_hello_done.to_vec(),
+            HandshakeFragment::Finished(finished) => finished.to_vec(),
             _ => panic!("Unsupported handshake fragment: {:?}", self)
         }
     }
@@ -55,6 +56,24 @@ impl HandshakeFragment {
         };
         fragment
     }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct Finished {
+    pub verify_data: Vec<u8>,
+}
+
+impl Finished {
+    pub fn new(verify_data: Vec<u8>) -> Self {
+        Self { verify_data }
+    }
+
+    pub fn to_vec(&self) -> Vec<u8> {
+        let mut vec: Vec<u8> = Vec::new();
+        vec.extend(self.verify_data.clone());
+        vec
+    }
+
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -212,6 +231,9 @@ impl Handshake {
             }
             HandshakeType::client_key_exchange => {
                 HandshakeFragment::ClientKeyExchange(ClientKeyExchange::new())
+            }
+            HandshakeType::finished => {
+                HandshakeFragment::Finished(Finished::new(vec![]))
             }
             _ => {
                 panic!("Unsupported handshake type: {:?}", msg_type);

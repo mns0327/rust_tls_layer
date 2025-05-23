@@ -1,7 +1,7 @@
 use std::fmt::{self, write};
 use crate::rand::rand;
 use crate::hash::{VecStructU8, hmac_sha256};
-use crate::handshake::{HandshakeType, Handshake, ClientKeyExchange, HandshakeFragment};
+use crate::handshake::{HandshakeType, Handshake, ClientKeyExchange, HandshakeFragment, Finished};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ProtocolVersion {
@@ -217,6 +217,18 @@ impl TLSPlaintext {
             version: ProtocolVersion::new(3, 3),
             length: 0,
             fragment: TLSFragment::ChangeCipherSpec(ChangeCipherSpec::new()),
+        }
+    }
+
+    pub fn new_handshake_finished(version: ProtocolVersion, verify_data: Vec<u8>) -> Self {
+        let fragment = Finished::new(verify_data);
+        let mut handshake = Handshake::new(20);
+        handshake.fragment = HandshakeFragment::Finished(fragment);
+        Self { 
+            content_type: ContentType::handshake, 
+            version, 
+            length: handshake.to_vec().len() as u16, 
+            fragment: TLSFragment::Handshake(handshake)
         }
     }
 
