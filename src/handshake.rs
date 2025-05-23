@@ -37,8 +37,9 @@ impl HandshakeFragment {
     pub fn to_vec(&self) -> Vec<u8> {
         match self {
             HandshakeFragment::ClientHello(client_hello) => client_hello.to_vec(),
-            // HandshakeFragment::ServerHello(server_hello) => server_hello.to_vec(),
+            HandshakeFragment::ServerHello(server_hello) => server_hello.to_vec(),
             HandshakeFragment::ClientKeyExchange(client_key_exchange) => client_key_exchange.to_vec(),
+            HandshakeFragment::Certificate(certificate) => certificate.to_vec(),
             _ => panic!("Unsupported handshake fragment: {:?}", self)
         }
     }
@@ -145,6 +146,17 @@ impl HandshakeServerHello {
         }
     }
 
+    pub fn to_vec(&self) -> Vec<u8> {
+        let mut vec: Vec<u8> = Vec::new();
+        vec.extend(self.version.to_vec());
+        vec.extend(self.random);
+        vec.extend([self.session_id.len() as u8]);
+        vec.extend(self.session_id);
+        vec.extend(self.chosen_cipher.to_vec());
+        vec.extend([self.compression_method.to_vec()[1]]);
+        vec
+    }
+
     fn from_vec(vec: Vec<u8>) -> Self {
         let version = ProtocolVersion::new(vec[0], vec[1]);
         let random = vec[2..34].try_into().unwrap();
@@ -228,13 +240,13 @@ impl HandshakeCertificate {
         Self { length: 0, tbsCertificate: vec![] }
     }
 
-    // pub fn to_vec(&self) -> Vec<u8> {
-    //     let mut vec: Vec<u8> = Vec::new();
-    //     let length_vec = u32::to_be_bytes(self.length);
-    //     vec.extend([length_vec[1], length_vec[2], length_vec[3]]);
-    //     // vec.extend(self.tbsCertificate.iter().flat_map(|tbs| tbs.to_vec()).collect::<Vec<u8>>());
-    //     vec
-    // }
+    pub fn to_vec(&self) -> Vec<u8> {   // TODO: 
+        let mut vec: Vec<u8> = Vec::new();
+        let length_vec = u32::to_be_bytes(self.length);
+        vec.extend([length_vec[1], length_vec[2], length_vec[3]]);
+        vec.extend(self.tbsCertificate.iter().flat_map(|tbs| tbs.to_vec()).collect::<Vec<u8>>());
+        vec
+    }
 
     pub fn from_vec(vec: Vec<u8>) -> Self {
         let certificate_length: u32 = u32::from_be_bytes([0, vec[0], vec[1], vec[2]]);

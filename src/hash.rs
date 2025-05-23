@@ -17,7 +17,8 @@ const K: [u32; 64] = [
     0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
 ];
 
-pub fn sha256(msg: &mut Vec<u8>) -> Vec<u8> {
+pub fn sha256(msg: &Vec<u8>) -> Vec<u8> {
+    let mut msg = msg.clone();
     let mut h: Vec<u32> = vec![
         0x6a09e667, 0xbb67ae85,
         0x3c6ef372, 0xa54ff53a,
