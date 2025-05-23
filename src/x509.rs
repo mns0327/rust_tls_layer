@@ -158,9 +158,11 @@ impl Certificate {
         let mut vec: Vec<u8> = Vec::new();
         
         vec.extend(self.tbsCertificate.to_vec());
-        println!("tbs: {:?}", vec.to_vec().hex_display());
-        // vec.extend(self.signatureAlgorithm.to_vec());
-        // vec.extend(self.signatureValue.clone());
+        vec.extend(self.signatureAlgorithm.to_vec());
+
+        let mut sig_bytes: Vec<u8> = vec![0];
+        sig_bytes.extend(self.signatureValue.clone());
+        vec.extend(wrap_with_sequence(0x03, sig_bytes));
         vec = wrap_with_sequence(0x30, vec);
         vec
     }
@@ -220,7 +222,6 @@ impl TBSCertificate {
         // TODO: subjectUniqueID
         vec.extend(self.extensions.to_vec());
         vec = wrap_with_sequence(0x30, vec);
-        println!("tbs: {:?}", vec.to_vec().hex_display());
         vec
     }
     
@@ -373,14 +374,12 @@ impl SubjectPublicKeyInfo {
         let mut seq = parser.parse_sequence();
 
         let algorithm = AlgorithmIdentifier::parse_from_parser(&mut seq);
-        println!("bit_str_before: {:?}", seq.data.to_vec().hex_display());
         let (bit_str, unused_bits) = seq.parse_bit_string();
         
         let (n, e) = parse_public_key(&bit_str);
         
         let mut value: Vec<u8> = vec![unused_bits];
         value.extend(bit_str);
-        println!("bit_str: {:?}", value.to_vec().hex_display());
 
         Self {
             algorithm,

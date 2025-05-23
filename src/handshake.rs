@@ -40,6 +40,7 @@ impl HandshakeFragment {
             HandshakeFragment::ServerHello(server_hello) => server_hello.to_vec(),
             HandshakeFragment::ClientKeyExchange(client_key_exchange) => client_key_exchange.to_vec(),
             HandshakeFragment::Certificate(certificate) => certificate.to_vec(),
+            HandshakeFragment::ServerHelloDone(server_hello_done) => server_hello_done.to_vec(),
             _ => panic!("Unsupported handshake fragment: {:?}", self)
         }
     }
@@ -180,6 +181,15 @@ impl ServerHelloDone {
     pub fn new() -> Self {
         Self { msg_type: HandshakeType::server_hello_done, length: 0, fragment: vec![] }
     }
+
+    pub fn to_vec(&self) -> Vec<u8> {
+        let mut vec: Vec<u8> = Vec::new();
+        // vec.extend([self.msg_type.to_vec()[1]]);
+        // let length_vec = u32::to_be_bytes(self.length);
+        // vec.extend([length_vec[1], length_vec[2], length_vec[3]]);
+        // vec.extend(self.fragment.clone());
+        vec
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -244,7 +254,12 @@ impl HandshakeCertificate {
         let mut vec: Vec<u8> = Vec::new();
         let length_vec = u32::to_be_bytes(self.length);
         vec.extend([length_vec[1], length_vec[2], length_vec[3]]);
-        vec.extend(self.tbsCertificate.iter().flat_map(|tbs| tbs.to_vec()).collect::<Vec<u8>>());
+        let cert_bytes: Vec<Vec<u8>> = self.tbsCertificate.iter().map(|tbs| tbs.to_vec()).collect();
+        for cert_byte in cert_bytes {
+            let length_vec = u32::to_be_bytes(cert_byte.len() as u32);
+            vec.extend([length_vec[1], length_vec[2], length_vec[3]]);
+            vec.extend(cert_byte);
+        }
         vec
     }
 

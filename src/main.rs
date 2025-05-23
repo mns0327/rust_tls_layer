@@ -41,28 +41,28 @@ fn main() -> std::io::Result<()> {
     println!("--------------------------------");
     
     let mut certificate_tls = net::read_tls(&mut stream)?;  // certificate
-    // println!("{:?}", certificate_tls);
-    println!("{:?}", certificate_tls.to_vec().hex_display());
+    println!("{:?}", certificate_tls);
     println!("--------------------------------");
 
-    // let mut encrypted: Vec<u8> = vec![];
-    // let mut pms: Vec<u8> = vec![3; 3];
-    // pms.extend(rand_len(46));
-    // if let TLSFragment::Handshake(handshake) = &certificate_tls.fragment {
-    //     if let HandshakeFragment::Certificate(cert) = &handshake.fragment {
-    //         let public_key = &cert.tbsCertificate[0].tbsCertificate.subject_public_key_info.publicKey;
-    //         encrypted = RSA::encrypt(&pms, &public_key.n, &public_key.e);
-    //     }
-    // }
+    let mut server_hello_done_tls = net::read_tls(&mut stream)?;
+    println!("{:?}", server_hello_done_tls);
+    println!("{:?}", server_hello_done_tls.to_vec().hex_display());
+    println!("--------------------------------");
 
-    // let mut client_key_exchange_tls = TLSPlaintext::new_handshake_client_key_exchange(ProtocolVersion::new(3, 3), encrypted);
-    // net::write_tls(&mut stream, &mut client_key_exchange_tls)?;  // client key exchange
-    // println!("{:?}", client_key_exchange_tls);
-    // println!("--------------------------------");
+    let mut encrypted: Vec<u8> = vec![];
+    let mut pms: Vec<u8> = vec![3; 3];
+    pms.extend(rand_len(46));
+    if let TLSFragment::Handshake(handshake) = &certificate_tls.fragment {
+        if let HandshakeFragment::Certificate(cert) = &handshake.fragment {
+            let public_key = &cert.tbsCertificate[0].tbsCertificate.subject_public_key_info.publicKey;
+            encrypted = RSA::encrypt(&pms, &public_key.n, &public_key.e);
+        }
+    }
 
-    // let mut server_hello_done_tls = net::read_tls(&mut stream)?;
-    // println!("{:?}", server_hello_done_tls);
-    // println!("--------------------------------");
+    let mut client_key_exchange_tls = TLSPlaintext::new_handshake_client_key_exchange(ProtocolVersion::new(3, 3), encrypted);
+    net::write_tls(&mut stream, &mut client_key_exchange_tls)?;  // client key exchange
+    println!("{:?}", client_key_exchange_tls);
+    println!("--------------------------------");
 
     // let mut change_cipher_spec_tls = TLSPlaintext::new_change_cipher_spec();
     // net::write_tls(&mut stream, &mut change_cipher_spec_tls)?;
