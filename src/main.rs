@@ -102,12 +102,12 @@ fn main() -> std::io::Result<()> {
     let client_write_iv = key_block[72..88].to_vec();
     let server_write_iv = key_block[88..104].to_vec();
     
-    println!("{:?}", client_master_key.hex_display());
-    println!("{:?}", server_master_key.hex_display());
-    println!("{:?}", client_write_key.hex_display());
-    println!("{:?}", server_write_key.hex_display());
-    println!("{:?}", client_write_iv.hex_display());
-    println!("{:?}", server_write_iv.hex_display());
+    // println!("{:?}", client_master_key.hex_display());
+    // println!("{:?}", server_master_key.hex_display());
+    // println!("{:?}", client_write_key.hex_display());
+    // println!("{:?}", server_write_key.hex_display());
+    // println!("{:?}", client_write_iv.hex_display());
+    // println!("{:?}", server_write_iv.hex_display());
 
     let mut handshake_message: Vec<u8> = vec![];
     handshake_message.extend(&client_hello_tls.to_vec());
@@ -130,8 +130,11 @@ fn main() -> std::io::Result<()> {
     let plaintext = b"hello world";
     let key = b"0123456789abcdef";
     let iv = b"";
-    let encrypted = aes_crypto::aes_encrypt(plaintext.to_vec(), key.to_vec(), iv.to_vec(), block_cipher::ECB_MODE);
-    println!("{:?}", encrypted.hex_display());
+    let encrypted = aes_crypto::aes_encrypt(plaintext.to_vec(), key.to_vec(), iv.to_vec(), block_cipher::ECB_MODE_ENCRYPT);
+    println!("encrypted: {:?}", encrypted.hex_display());
+
+    let decrypted = aes_crypto::aes_decrypt(encrypted, key.to_vec(), iv.to_vec(), block_cipher::ECB_MODE_DECRYPT);
+    println!("decrypted: {:?}", String::from_utf8_lossy(&decrypted));
 
     Ok(())
 }

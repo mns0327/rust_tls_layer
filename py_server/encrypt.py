@@ -351,3 +351,109 @@ cbc = aes_mode_encrypt(plaintext, key, mode='CBC', iv=iv)
 ctr = aes_mode_encrypt(plaintext, key, mode='CTR', iv=iv)
 
 ecb.hex(), cbc.hex(), ctr.hex()
+
+inv_s_box = [s_box.index(x) for x in range(256)]
+
+def aes_decrypt_block(ciphertext_block: bytes, key: bytes) -> bytes:
+    inv_s_box = [s_box.index(x) for x in range(256)]
+
+    def inv_shift_rows(state):
+        return [
+            state[0], state[13], state[10], state[7],
+            state[4], state[1], state[14], state[11],
+            state[8], state[5], state[2], state[15],
+            state[12], state[9], state[6], state[3]
+        ]
+
+    def xtime(a):
+        return ((a << 1) ^ 0x1B) & 0xFF if (a & 0x80) else (a << 1)
+
+    def mult(a, b):
+        result = 0
+        for i in range(8):
+            if b & 1:
+                result ^= a
+            high_bit = a & 0x80
+            a = (a << 1) & 0xFF
+            if high_bit:
+                a ^= 0x1B
+            b >>= 1
+        return result
+
+    def inv_mix_columns(state):
+        res = []
+        for i in range(4):
+            col = state[i*4:(i+1)*4]
+            res += [
+                mult(col[0], 0x0e) ^ mult(col[1], 0x0b) ^ mult(col[2], 0x0d) ^ mult(col[3], 0x09),
+                mult(col[0], 0x09) ^ mult(col[1], 0x0e) ^ mult(col[2], 0x0b) ^ mult(col[3], 0x0d),
+                mult(col[0], 0x0d) ^ mult(col[1], 0x09) ^ mult(col[2], 0x0e) ^ mult(col[3], 0x0b),
+                mult(col[0], 0x0b) ^ mult(col[1], 0x0d) ^ mult(col[2], 0x09) ^ mult(col[3], 0x0e),
+            ]
+        return res
+
+    def add_round_key(state, key):
+        return [s ^ k for s, k in zip(state, key)]
+
+    def key_expansion(key):
+        key_columns = [key[i:i+4] for i in range(0, 16, 4)]
+        i = 0
+        while len(key_columns) < 44:
+            word = list(key_columns[-1])
+            if len(key_columns) % 4 == 0:
+                word = [s_box[word[(j+1)%4]] for j in range(4)]
+                word[0] ^= Rcon[i]
+                i += 1
+            word = [a ^ b for a, b in zip(word, key_columns[-4])]
+            key_columns.append(word)
+        return [b for word in key_columns for b in word]
+
+    state = list(ciphertext_block)
+    expanded_key = key_expansion(key)
+    state = add_round_key(state, expanded_key[160:])
+    for round in range(9, 0, -1):
+        state = inv_shift_rows(state)
+        state = [inv_s_box[b] for b in state]
+        state = add_round_key(state, expanded_key[round*16:(round+1)*16])
+        state = inv_mix_columns(state)
+    state = inv_shift_rows(state)
+    state = [inv_s_box[b] for b in state]
+    state = add_round_key(state, expanded_key[:16])
+    return bytes(state)
+
+def aes_mode_decrypt(ciphertext: bytes, key: bytes, mode: str = 'ECB', iv: bytes = None) -> bytes:
+    blocks = split_blocks(ciphertext)
+    result = []
+
+    if mode == 'ECB':
+        for block in blocks:
+            result.append(aes_decrypt_block(block, key))
+    elif mode == 'CBC':
+        if iv is None:
+            raise ValueError("CBC mode requires IV")
+        prev = iv
+        for block in blocks:
+            plain_block = aes_decrypt_block(block, key)
+            result.append(xor_bytes(plain_block, prev))
+            prev = block
+    elif mode == 'CTR':
+        if iv is None:
+            raise ValueError("CTR mode requires IV")
+        counter = int.from_bytes(iv, 'big')
+        for i, block in enumerate(blocks):
+            counter_block = (counter + i).to_bytes(16, 'big')
+            keystream = aes_encrypt_block(counter_block, key)
+            result.append(xor_bytes(block, keystream[:len(block)]))
+    else:
+        raise ValueError("Unsupported mode")
+
+    return b''.join(result) if mode == 'CTR' else unpad(b''.join(result))
+
+# Test decryption against known ciphertexts
+dec_ecb = aes_mode_decrypt(ecb, key, mode='ECB')
+dec_cbc = aes_mode_decrypt(cbc, key, mode='CBC', iv=iv)
+dec_ctr = aes_mode_decrypt(ctr, key, mode='CTR', iv=iv)
+
+dec_ecb.decode(), dec_cbc.decode(), dec_ctr.decode()
+print("--------------------------------")
+print(dec_ecb.decode())
