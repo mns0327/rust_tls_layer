@@ -130,8 +130,11 @@ fn main() -> std::io::Result<()> {
     let plaintext = b"hello world";
     let key = b"0123456789abcdef";
     let iv = b"";
-    let encrypted = aes_crypto::aes_gcm_encrypt([0; 16].to_vec(), [0; 12].to_vec(), [0; 12].to_vec(), [0x16, 0x03, 0x03].to_vec());
+    let encrypted = aes_crypto::aes_gcm_encrypt([0; 16].to_vec(), [0; 12].to_vec(), b"hello world".to_vec(), [0x16, 0x03, 0x03].to_vec());
     println!("encrypted: {:?}", encrypted.hex_display());
+
+    let decrypted = aes_crypto::aes_gcm_decrypt([0; 16].to_vec(), [0; 12].to_vec(), encrypted.clone(), [0x16, 0x03, 0x03].to_vec());
+    println!("decrypted: {:?}", String::from_utf8_lossy(&decrypted));
 
     Ok(())
 }
