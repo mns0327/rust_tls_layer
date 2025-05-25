@@ -1,4 +1,5 @@
-use std::sync::Arc;
+use std::{char::EscapeUnicode, sync::Arc};
+use crate::block_cipher;
 
 pub const S_BOX: [u8; 256] = [
     0x63, 0x7C, 0x77, 0x7B, 0xF2, 0x6B, 0x6F, 0xC5, 0x30, 0x01, 0x67, 0x2B, 0xFE, 0xD7, 0xAB, 0x76,
@@ -110,10 +111,6 @@ fn key_expansion(key: [u8; 16]) -> Vec<u8> {
     key_columns.iter().flatten().cloned().collect()
 }
 
-pub fn aes_encrypt(plaintext: Vec<u8>, key: Vec<u8>, iv: Vec<u8>, block_cipher_func: fn(fn([u8; 16], [u8; 16]) -> [u8; 16], Vec<u8>, Vec<u8>, Vec<u8>) -> Vec<u8>) -> Vec<u8> {
-    block_cipher_func(aes_encrypt_block, plaintext, key, iv)
-}
-
 pub fn aes_encrypt_block(plaintext: [u8; 16], key: [u8; 16]) -> [u8; 16] {
     let mut state: [u8; 16] = plaintext.clone();
     let expanded_key: Vec<u8> = key_expansion(key);
@@ -174,9 +171,9 @@ pub fn inv_mix_columns(state: [u8; 16]) -> [u8; 16] {
     result.try_into().unwrap()
 }
 
-pub fn aes_decrypt(plaintext: Vec<u8>, key: Vec<u8>, iv: Vec<u8>, block_cipher_func: fn(fn([u8; 16], [u8; 16]) -> [u8; 16], Vec<u8>, Vec<u8>, Vec<u8>) -> Vec<u8>) -> Vec<u8> {
-    block_cipher_func(aes_decrypt_block, plaintext, key, iv)
-}
+
+
+
 
 pub fn aes_decrypt_block(plaintext: [u8; 16], key: [u8; 16]) -> [u8; 16] {
     let mut state: [u8; 16] = plaintext.clone();
@@ -195,3 +192,28 @@ pub fn aes_decrypt_block(plaintext: [u8; 16], key: [u8; 16]) -> [u8; 16] {
     state = add_round_key(state,expanded_key[0..16].try_into().unwrap());
     state
 }
+
+pub struct AES {
+    key: Vec<u8>,
+    // iv
+    block_mode: fn(fn([u8; 16], [u8; 16]) -> [u8; 16], Vec<u8>, Vec<u8>, Vec<u8>, bool) -> Vec<u8>
+}
+
+impl AES {
+    pub fn new(key: Vec<u8>, block_mode: fn(fn([u8; 16], [u8; 16]) -> [u8; 16], Vec<u8>, Vec<u8>, Vec<u8>, bool) -> Vec<u8>) -> Self {
+        Self { key, block_mode }
+    }
+
+    pub fn encrypt(&self, plaintext: Vec<u8>) -> Vec<u8> {
+        (self.block_mode)(aes_encrypt_block, plaintext, self.key.clone(), b"".to_vec(), true)
+    }
+
+    pub fn decrypt(&self, plaintext: Vec<u8>) -> Vec<u8> {
+        (self.block_mode)(aes_decrypt_block, plaintext, self.key.clone(), b"".to_vec(), false)
+    }
+}
+
+// pub fn aes_gcm_encrypt(key: Vec<u8>, iv: Vec<u8>, pt: Vec<u8>, aad: Vec<u8>) -> Vec<u8> {
+//     let H = EscapeUnicode
+//     vec![]
+// }
