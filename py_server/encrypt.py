@@ -46,6 +46,9 @@ def ghash(H: bytes, A: bytes, C: bytes) -> bytes:
 
     process_blocks(pad16(A))
     process_blocks(pad16(C))
+    print("A", pad16(A).hex())
+    print("C", pad16(C).hex())
+    print("Y", Y.to_bytes(16, 'big').hex())
 
     a_len = (len(A) * 8).to_bytes(8, 'big')
     c_len = (len(C) * 8).to_bytes(8, 'big')
@@ -58,6 +61,7 @@ def ghash(H: bytes, A: bytes, C: bytes) -> bytes:
 def aes_gcm_encrypt(key: bytes, iv: bytes, plaintext: bytes, aad: bytes):
     aes = AES.new(key, AES.MODE_ECB)
     H = aes.encrypt(b'\x00' * 16)
+    print(len(H))
     J0 = iv + b'\x00\x00\x00\x01'
 
     def inc32(counter):
@@ -69,6 +73,7 @@ def aes_gcm_encrypt(key: bytes, iv: bytes, plaintext: bytes, aad: bytes):
     ciphertext = b''
     for i in range(0, len(plaintext), 16):
         block = plaintext[i:i+16]
+        print(block.hex())
         keystream = aes.encrypt(ctr)
         ctr = inc32(ctr)
         ciphertext_block = bytes(a ^ b for a, b in zip(block, keystream[:len(block)]))
@@ -83,6 +88,7 @@ def aes_gcm_encrypt(key: bytes, iv: bytes, plaintext: bytes, aad: bytes):
 def aes_gcm_decrypt_tag(key: bytes, iv: bytes, ciphertext_and_tag: bytes, aad: bytes):
     aes = AES.new(key, AES.MODE_ECB)
     H = aes.encrypt(b'\x00' * 16)
+    print(H.hex())
     J0 = iv + b'\x00\x00\x00\x01'
 
     tag = ciphertext_and_tag[-16:]
@@ -101,7 +107,6 @@ def aes_gcm_decrypt_tag(key: bytes, iv: bytes, ciphertext_and_tag: bytes, aad: b
         ctr = inc32(ctr)
         plaintext_block = bytes(a ^ b for a, b in zip(block, keystream[:len(block)]))
         plaintext += plaintext_block
-
     S = ghash(H, aad, ciphertext)
     computed_tag = bytes(a ^ b for a, b in zip(aes.encrypt(J0), S))
 
@@ -117,8 +122,8 @@ iv = b'\x00' * 12
 ciphertext, tag = aes_gcm_encrypt(key, iv, finished_plaintext, aad)
 decrypted = aes_gcm_decrypt_tag(key, iv, ciphertext + tag, aad)
 
-print(ciphertext + tag)
-print(decrypted)
+print((ciphertext + tag).hex())
+print(decrypted.hex())
 
 # def aes_encrypt_block(plaintext_block: bytes, key: bytes) -> bytes:
 #     def sub_bytes(state):

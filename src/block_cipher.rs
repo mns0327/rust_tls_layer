@@ -15,14 +15,17 @@ pub fn ECB_MODE(cipher_func: fn([u8; 16], [u8; 16]) -> [u8; 16], data: Vec<u8>, 
     result
 }
 
-fn pad(data: Vec<u8>, block_size: usize) -> Vec<u8> {
+pub fn pad(data: Vec<u8>, block_size: usize) -> Vec<u8> {
+    if data.len() % block_size == 0 {
+        return data;
+    }
     let mut pad_len = block_size - data.len() % block_size;
     let mut result = data.clone();
     result.extend(vec![pad_len as u8; pad_len]);
     result
 }
 
-fn unpad(data: Vec<u8>) -> Vec<u8> {
+pub fn unpad(data: Vec<u8>) -> Vec<u8> {
     let pad_len = data[data.len() - 1] as usize;
     data[..data.len() - pad_len].to_vec()
 }

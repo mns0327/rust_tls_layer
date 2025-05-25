@@ -130,12 +130,8 @@ fn main() -> std::io::Result<()> {
     let plaintext = b"hello world";
     let key = b"0123456789abcdef";
     let iv = b"";
-    let mut aes = aes_crypto::AES::new(key.to_vec(),block_cipher::ECB_MODE);
-    let encrypted = aes.encrypt(plaintext.to_vec());
+    let encrypted = aes_crypto::aes_gcm_encrypt([0; 16].to_vec(), [0; 12].to_vec(), [0; 12].to_vec(), [0x16, 0x03, 0x03].to_vec());
     println!("encrypted: {:?}", encrypted.hex_display());
-
-    let decrypted = aes.decrypt(encrypted);
-    println!("decrypted: {:?}", String::from_utf8_lossy(&decrypted));
 
     Ok(())
 }

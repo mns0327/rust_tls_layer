@@ -1,5 +1,6 @@
 use std::{char::EscapeUnicode, sync::Arc};
 use crate::block_cipher;
+use crate::hash::VecStructU8;
 
 pub const S_BOX: [u8; 256] = [
     0x63, 0x7C, 0x77, 0x7B, 0xF2, 0x6B, 0x6F, 0xC5, 0x30, 0x01, 0x67, 0x2B, 0xFE, 0xD7, 0xAB, 0x76,
@@ -213,7 +214,82 @@ impl AES {
     }
 }
 
-// pub fn aes_gcm_encrypt(key: Vec<u8>, iv: Vec<u8>, pt: Vec<u8>, aad: Vec<u8>) -> Vec<u8> {
-//     let H = EscapeUnicode
-//     vec![]
-// }
+fn gf_mul(x: u128, y: u128) -> u128 {
+    let mut x = x.clone();
+    let r: u128 = 0xe1000000000000000000000000000000;
+    let mut z = 0;
+    for i in 0..128 {
+        if y & (1 << (127 - i)) != 0 {
+            z ^= x;
+        }
+        if x & 1 == 1 {
+            x = (x >> 1) ^ r;
+        } else {
+            x >>= 1;
+        }
+    }
+    z
+}
+
+fn inc32(counter: &Vec<u8>) -> Vec<u8> {
+    let mut value = u32::from_be_bytes(counter[counter.len() - 4..].try_into().unwrap());
+    value += 1;
+    let mut result = counter.clone();
+    result[counter.len() - 4..].copy_from_slice(&u32::to_be_bytes(value));
+    result
+}
+
+fn pad16(data: Vec<u8>) -> Vec<u8> {
+    if data.len() % 16 == 0 {
+        return data;
+    }
+    let mut result = data.clone();
+    result.extend(vec![0; 16 - data.len() % 16]);
+    result
+}
+
+fn process_block(y: &mut u128, h: &u128, data: Vec<u8>) {
+    for i in (0..data.len()).step_by(16) {
+        *y = gf_mul(*y ^ u128::from_be_bytes(data[i..i+16].try_into().unwrap()), h.clone())
+    }
+}
+
+fn ghash(h: Vec<u8>, a: Vec<u8>, c: Vec<u8>) -> Vec<u8> {
+    let h = u128::from_be_bytes(h.try_into().unwrap());
+    let mut y: u128 = 0;
+
+    process_block(&mut y, &h, pad16(a.clone()));
+    process_block(&mut y, &h, pad16(c.clone()));
+
+    let mut length_block: Vec<u8> = u64::to_be_bytes(a.len() as u64 * 8).to_vec();
+    length_block.extend(u64::to_be_bytes(c.len() as u64 * 8).to_vec());
+    y = gf_mul(y ^ u128::from_be_bytes(length_block.try_into().unwrap()), h.clone());
+
+    u128::to_be_bytes(y).to_vec()
+}
+
+pub fn aes_gcm_encrypt(key: Vec<u8>, iv: Vec<u8>, pt: Vec<u8>, aad: Vec<u8>) -> Vec<u8> {
+    let mut aes = AES::new(key, block_cipher::ECB_MODE);
+    let H = aes.encrypt([0; 16].to_vec());
+    let mut J0 = iv.clone();
+    J0.extend([0, 0, 0, 1]);
+
+    let mut ctr = inc32(&J0);
+    let mut ciphertext = vec![];
+    for i in (0..pt.len() as i64 - 16).step_by(16) {
+        let block = pt[i as usize..i as usize + 16].to_vec();
+        let keystream = aes.encrypt(ctr.clone());
+        ctr = inc32(&ctr);
+        ciphertext.extend(block.iter().zip(keystream[..16].iter()).map(|(a, b)| a ^ b).collect::<Vec<u8>>());
+        println!("1");
+    }
+    let block = pt[pt.len() - pt.len() % 16..].to_vec();
+    let keystream = aes.encrypt(ctr.clone());
+    ctr = inc32(&ctr);
+    ciphertext.extend(block.iter().zip(keystream[..16].iter()).map(|(a, b)| a ^ b).collect::<Vec<u8>>());
+
+    let S = ghash(H, aad.clone(), ciphertext.clone());
+    let tag = aes.encrypt(J0.clone()).iter().zip(S.iter()).map(|(a, b)| a ^ b).collect::<Vec<u8>>();
+    ciphertext.extend(tag);
+    ciphertext
+}
