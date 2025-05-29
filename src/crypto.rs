@@ -46,13 +46,14 @@ impl RSA for Vec<u8> {
 
 pub fn prf(secret: Vec<u8>, label: Vec<u8>, seed: Vec<u8>, length: usize) -> Vec<u8> {
     let mut result: Vec<u8> = Vec::new();
-    let mut _seed = label;
-    _seed.extend(seed);
+    let mut _seed = label.clone();
+    _seed.extend(&seed);
     let mut tmp = hmac_sha256(&secret, &_seed);
 
     while result.len() < length {
         let mut new_seed = tmp.clone();
-        new_seed.extend(&_seed);
+        new_seed.extend(&label);
+        new_seed.extend(&seed);
         result.extend(hmac_sha256(&secret, &new_seed));
         tmp = hmac_sha256(&secret, &tmp);
     }

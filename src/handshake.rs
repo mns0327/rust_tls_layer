@@ -15,7 +15,8 @@ define_enum_macro! {
         server_hello_done = 14,
         certificate_verify = 15,
         client_key_exchange = 16,
-        finished = 20
+        finished = 20,
+        unknown = 255
     }
 }
 
@@ -31,6 +32,7 @@ pub enum HandshakeFragment {
     // CertificateVerify(CertificateVerify),
     ClientKeyExchange(ClientKeyExchange),
     Finished(Finished),
+    Unknown(Vec<u8>),
 }
 
 impl HandshakeFragment {
@@ -42,6 +44,7 @@ impl HandshakeFragment {
             HandshakeFragment::Certificate(certificate) => certificate.to_vec(),
             HandshakeFragment::ServerHelloDone(server_hello_done) => server_hello_done.to_vec(),
             HandshakeFragment::Finished(finished) => finished.to_vec(),
+            HandshakeFragment::Unknown(unknown) => unknown.clone(),
             _ => panic!("Unsupported handshake fragment: {:?}", self)
         }
     }
@@ -124,7 +127,8 @@ impl HandshakeClientHello {
         vec.extend(cipher_suites_bytes);        // cipher suites
         vec.extend([self.compression_methods.len() as u8]);    // Compression Methods Length 1 bytes
         vec.extend(self.compression_methods.iter().flat_map(|s| [s.to_vec()[1]]).collect::<Vec<u8>>());    // Compression Methods null 1 bytes
-        vec.extend([0, 0]); // Extensions Length 2 bytes
+        vec.extend([0, 0x8]); // Extensions Length 2 bytes
+        vec.extend([0x00, 0x0d, 0x00, 0x04, 0x00, 0x02, 0x04, 0x01]);   // TODO: hardcode
         
         // ... Extensions 
         vec
@@ -235,6 +239,9 @@ impl Handshake {
             HandshakeType::finished => {
                 HandshakeFragment::Finished(Finished::new(vec![]))
             }
+            HandshakeType::unknown => {
+                HandshakeFragment::Unknown(vec![])
+            }
             _ => {
                 panic!("Unsupported handshake type: {:?}", msg_type);
             }
@@ -244,12 +251,17 @@ impl Handshake {
 
     pub fn to_vec(&mut self) -> Vec<u8> {
         let mut vec: Vec<u8> = Vec::new();
-        vec.extend([self.msg_type.to_vec()[1]]);
 
-        self.length = self.fragment.to_vec().len() as u32;
-        let length_vec = u32::to_be_bytes(self.length);
-        vec.extend([length_vec[1], length_vec[2], length_vec[3]]);
-        vec.extend(self.fragment.to_vec());
+        if self.msg_type == HandshakeType::unknown {
+            vec.extend(self.fragment.to_vec());
+        } else {
+            vec.extend([self.msg_type.to_vec()[1]]);
+            self.length = self.fragment.to_vec().len() as u32;
+            let length_vec = u32::to_be_bytes(self.length);
+            vec.extend([length_vec[1], length_vec[2], length_vec[3]]);
+            vec.extend(self.fragment.to_vec());
+        }
+
         vec
     }
 

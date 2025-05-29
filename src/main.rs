@@ -21,9 +21,9 @@ use crate::db::TLSFragment;
 fn main() -> std::io::Result<()> {
     let mut client_random: [u8; 32] = [0; 32];
     let mut server_random: [u8; 32] = [0; 32];
-    let mut client_hello_tls = TLSPlaintext::new(22, ProtocolVersion::new(3, 1));
-    let mut stream = TcpStream::connect("google.com:443")?;
-    
+    let mut client_hello_tls = TLSPlaintext::new(22, ProtocolVersion::new(3, 3));
+    let mut stream = TcpStream::connect("localhost:4433")?;
+    println!("client_hello_tls: {:?}", client_hello_tls.to_vec().hex_display());
     net::write_tls(&mut stream, &mut client_hello_tls)?;  // client hello
     if let TLSFragment::Handshake(handshake) = &client_hello_tls.fragment {
         if let HandshakeFragment::ClientHello(client_hello) = &handshake.fragment {
@@ -75,15 +75,11 @@ fn main() -> std::io::Result<()> {
     //verify_data = PRF(master_secret, "client finished", Hash(all_handshake_messages))[:12]
 
     // TODO: tls manager struct 
-    let mut premaster_secret: Vec<u8> = vec![0x03, 0x03, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11];
-    let client_random: Vec<u8> = vec![0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa];
-    let server_random: Vec<u8> = vec![0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb];
-
     let mut seed: Vec<u8> = vec![];
     seed.extend(&client_random);
     seed.extend(&server_random);
 
-    let master_secret = crypto::prf(premaster_secret, b"master secret".to_vec(), seed, 48);
+    let master_secret = crypto::prf(pms, b"master secret".to_vec(), seed, 48);
 
     println!("{:?}", master_secret.hex_display());
 
@@ -91,18 +87,18 @@ fn main() -> std::io::Result<()> {
     seed.extend(&server_random);
     seed.extend(&client_random);
 
-    let key_block_len: usize = 20 + 20 + 16 + 16 + 16 + 16;
+    let key_block_len: usize = 16 + 16 + 4 + 4;
 
     let mut key_block: Vec<u8> = crypto::prf(master_secret.clone(), b"key expansion".to_vec(), seed, key_block_len);
 
-    let client_master_key = key_block[0..20].to_vec();
-    let server_master_key = key_block[20..40].to_vec();
-    let client_write_key = key_block[40..56].to_vec();
-    let server_write_key = key_block[56..72].to_vec();
-    let client_write_iv = key_block[72..88].to_vec();
-    let server_write_iv = key_block[88..104].to_vec();
+    // let client_master_key = key_block[0..20].to_vec();
+    // let server_master_key = key_block[20..40].to_vec();
+    let client_write_key = key_block[0..16].to_vec();
+    let server_write_key = key_block[16..32].to_vec();
+    let client_write_iv = key_block[32..36].to_vec();
+    let server_write_iv = key_block[36..40].to_vec();
     
-    // println!("{:?}", client_master_key.hex_display());
+    // println!("{:?}", &client_hello_tls.fragment.to_vec().hex_display());
     // println!("{:?}", server_master_key.hex_display());
     // println!("{:?}", client_write_key.hex_display());
     // println!("{:?}", server_write_key.hex_display());
@@ -110,11 +106,12 @@ fn main() -> std::io::Result<()> {
     // println!("{:?}", server_write_iv.hex_display());
 
     let mut handshake_message: Vec<u8> = vec![];
-    handshake_message.extend(&client_hello_tls.to_vec());
-    handshake_message.extend(&server_hello_tls.to_vec());
-    handshake_message.extend(&certificate_tls.to_vec());
-    handshake_message.extend(&server_hello_done_tls.to_vec());
-    handshake_message.extend(&client_key_exchange_tls.to_vec());
+    handshake_message.extend(&client_hello_tls.fragment.to_vec());
+    handshake_message.extend(&server_hello_tls.fragment.to_vec());
+    handshake_message.extend(&certificate_tls.fragment.to_vec());
+    handshake_message.extend(&server_hello_done_tls.fragment.to_vec());
+    handshake_message.extend(&client_key_exchange_tls.fragment.to_vec());
+    println!("{:?}", handshake_message.hex_display());
 
     let handshake_hash = hash::sha256(&handshake_message);
 
@@ -125,16 +122,39 @@ fn main() -> std::io::Result<()> {
     let mut finished_tls = TLSPlaintext::new_handshake_finished(ProtocolVersion::new(3, 3), verify_data);
 
     println!("{:?}", finished_tls.to_vec().hex_display());
+    let finished_plaintext = finished_tls.fragment.to_vec();
+    // let aad = finished_tls.to_vec()[..5].to_vec();
+    let mut nonce: Vec<u8> = client_write_iv.clone();
+    let explicit_nonce: Vec<u8> = rand_len(8);
+    nonce.extend(&explicit_nonce);
     println!("--------------------------------");
 
-    let plaintext = b"hello world";
-    let key = b"0123456789abcdef";
-    let iv = b"";
-    let encrypted = aes_crypto::aes_gcm_encrypt([0; 16].to_vec(), [0; 12].to_vec(), b"hello world".to_vec(), [0x16, 0x03, 0x03].to_vec());
+    println!("{:?}", finished_plaintext.hex_display());
+
+    let aes_gcm = aes_crypto::AES_GCM::new(client_write_key.clone());
+
+    let mut aad: Vec<u8> = [0; 8].to_vec();
+    aad.extend([0x16]);
+    aad.extend([0x03, 0x03]);
+    aad.extend([0x00, 0x10]);
+    let encrypted = aes_gcm.encrypt(nonce.clone(), finished_plaintext.clone(), aad.clone());
     println!("encrypted: {:?}", encrypted.hex_display());
 
-    let decrypted = aes_crypto::aes_gcm_decrypt([0; 16].to_vec(), [0; 12].to_vec(), encrypted.clone(), [0x16, 0x03, 0x03].to_vec());
-    println!("decrypted: {:?}", String::from_utf8_lossy(&decrypted));
+    // let decrypted = aes_gcm.decrypt(nonce.clone(), encrypted.clone(), aad.clone());
+    // println!("decrypted: {:?}", decrypted.hex_display());
+
+    let mut encrypted_data: Vec<u8> = explicit_nonce;
+    encrypted_data.extend(encrypted.clone());
+
+    let mut finished_tls = TLSPlaintext::new_handshake_data(ProtocolVersion::new(3, 3), encrypted_data.clone());
+    println!("{:?}", finished_tls.to_vec().hex_display());
+
+    net::write_tls(&mut stream, &mut finished_tls)?;
+
+    let mut client_finished_tls = net::read_tls(&mut stream)?;
+    println!("client_finished_tls: {:?}", client_finished_tls.to_vec().hex_display());
+    println!("{:?}", client_finished_tls);
+    println!("--------------------------------");
 
     Ok(())
 }

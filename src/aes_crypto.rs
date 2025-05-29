@@ -268,60 +268,71 @@ fn ghash(h: Vec<u8>, a: Vec<u8>, c: Vec<u8>) -> Vec<u8> {
     u128::to_be_bytes(y).to_vec()
 }
 
-pub fn aes_gcm_encrypt(key: Vec<u8>, iv: Vec<u8>, pt: Vec<u8>, aad: Vec<u8>) -> Vec<u8> {
-    let mut aes = AES::new(key, block_cipher::ECB_MODE);
-    let H = aes.encrypt([0; 16].to_vec());
-    let mut J0 = iv.clone();
-    J0.extend([0, 0, 0, 1]);
-
-    let mut ctr = inc32(&J0);
-    let mut ciphertext = vec![];
-    for i in (0..pt.len() as i64 - 16).step_by(16) {
-        let block = pt[i as usize..i as usize + 16].to_vec();
-        let keystream = aes.encrypt(ctr.clone());
-        ctr = inc32(&ctr);
-        ciphertext.extend(block.iter().zip(keystream[..16].iter()).map(|(a, b)| a ^ b).collect::<Vec<u8>>());
-        println!("1");
-    }
-    let block = pt[pt.len() - pt.len() % 16..].to_vec();
-    let keystream = aes.encrypt(ctr.clone());
-    ctr = inc32(&ctr);
-    ciphertext.extend(block.iter().zip(keystream[..16].iter()).map(|(a, b)| a ^ b).collect::<Vec<u8>>());
-
-    let S = ghash(H, aad.clone(), ciphertext.clone());
-    let tag = aes.encrypt(J0.clone()).iter().zip(S.iter()).map(|(a, b)| a ^ b).collect::<Vec<u8>>();
-    ciphertext.extend(tag);
-    ciphertext
+pub struct AES_GCM {
+    key: Vec<u8>,
 }
 
-pub fn aes_gcm_decrypt(key: Vec<u8>, iv: Vec<u8>, ciphertext_with_tag: Vec<u8>, aad: Vec<u8>) -> Vec<u8> {
-    let mut aes = AES::new(key, block_cipher::ECB_MODE);
-    let H = aes.encrypt([0; 16].to_vec());
-    let mut J0 = iv.clone();
-    J0.extend([0, 0, 0, 1]);
-
-    let tag = ciphertext_with_tag[ciphertext_with_tag.len() - 16..].to_vec();
-    let ciphertext = ciphertext_with_tag[..ciphertext_with_tag.len() - 16].to_vec();
-
-    let mut ctr = inc32(&J0);
-    let mut plaintext = vec![];
-    for i in (0..ciphertext.len() as i64 - 16).step_by(16) {
-        let block = ciphertext[i as usize..i as usize + 16].to_vec();
-        let keystream = aes.encrypt(ctr.clone());
-        ctr = inc32(&ctr);
-        plaintext.extend(block.iter().zip(keystream[..16].iter()).map(|(a, b)| a ^ b).collect::<Vec<u8>>());
+impl AES_GCM {
+    pub fn new(key: Vec<u8>) -> Self {
+        Self { key }
     }
-    let block = ciphertext[ciphertext.len() - ciphertext.len() % 16..].to_vec();
-    let keystream = aes.encrypt(ctr.clone());
-    ctr = inc32(&ctr);
-    plaintext.extend(block.iter().zip(keystream[..16].iter()).map(|(a, b)| a ^ b).collect::<Vec<u8>>());
+    
+    pub fn encrypt(&self, iv: Vec<u8>, pt: Vec<u8>, aad: Vec<u8>) -> Vec<u8> {
+        let mut aes = AES::new(self.key.clone(), block_cipher::ECB_MODE);
+        let H = aes.encrypt([0; 16].to_vec());
+        let mut J0 = iv.clone();
+        J0.extend([0, 0, 0, 1]);
 
-    let S = ghash(H, aad.clone(), ciphertext.clone());
-    let computed_tag = aes.encrypt(J0.clone()).iter().zip(S.iter()).map(|(a, b)| a ^ b).collect::<Vec<u8>>();
+        let mut ctr = inc32(&J0);
+        let mut ciphertext = vec![];
+        for i in (0..pt.len() as i64).step_by(16) {
+            let mut block = vec![];
+            if i + 16 > pt.len() as i64 {
+                block = pt[i as usize..].to_vec();
+            } else {
+                block = pt[i as usize..i as usize + 16].to_vec();
+            }
+            let keystream = aes.encrypt(ctr.clone());
+            ctr = inc32(&ctr);
+            ciphertext.extend(block.iter().zip(keystream[..16].iter()).map(|(a, b)| a ^ b).collect::<Vec<u8>>());
+        }
 
-    if computed_tag != tag {
-        panic!("Authentication failed: GCM tag mismatch");
+        let S = ghash(H, aad.clone(), ciphertext.clone());
+        let tag = aes.encrypt(J0.clone()).iter().zip(S.iter()).map(|(a, b)| a ^ b).collect::<Vec<u8>>();
+        ciphertext.extend(tag);
+        ciphertext
     }
 
-    plaintext
+    pub fn decrypt(&self, iv: Vec<u8>, ciphertext_with_tag: Vec<u8>, aad: Vec<u8>) -> Vec<u8> {
+        let mut aes = AES::new(self.key.clone(), block_cipher::ECB_MODE);
+        let H = aes.encrypt([0; 16].to_vec());
+        let mut J0 = iv.clone();
+        J0.extend([0, 0, 0, 1]);
+    
+        let tag = ciphertext_with_tag[ciphertext_with_tag.len() - 16..].to_vec();
+        let ciphertext = ciphertext_with_tag[..ciphertext_with_tag.len() - 16].to_vec();
+    
+        let mut ctr = inc32(&J0);
+        let mut plaintext = vec![];
+        for i in (0..ciphertext.len() as i64).step_by(16) {
+            let mut block = vec![];
+            if i + 16 > ciphertext.len() as i64 {
+                block = ciphertext[i as usize..].to_vec();
+            } else {
+                block = ciphertext[i as usize..i as usize + 16].to_vec();
+            }
+            let keystream = aes.encrypt(ctr.clone());
+            ctr = inc32(&ctr);
+            plaintext.extend(block.iter().zip(keystream[..16].iter()).map(|(a, b)| a ^ b).collect::<Vec<u8>>());
+        }
+        
+        let S = ghash(H, aad.clone(), ciphertext.clone());
+        let computed_tag = aes.encrypt(J0.clone()).iter().zip(S.iter()).map(|(a, b)| a ^ b).collect::<Vec<u8>>();
+    
+        if computed_tag != tag {
+            panic!("Authentication failed: GCM tag mismatch");
+        }
+    
+        plaintext
+    }
 }

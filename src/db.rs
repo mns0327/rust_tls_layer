@@ -232,6 +232,17 @@ impl TLSPlaintext {
         }
     }
 
+    pub fn new_handshake_data(version: ProtocolVersion, data: Vec<u8>) -> Self {
+        let mut handshake = Handshake::new(255);
+        handshake.fragment = HandshakeFragment::Unknown(data);
+        Self { 
+            content_type: ContentType::handshake, 
+            version, 
+            length: handshake.to_vec().len() as u16,    
+            fragment: TLSFragment::Handshake(handshake)
+        }
+    }
+
     pub fn to_vec(&mut self) -> Vec<u8> {
         self.length = self.fragment.to_vec().len() as u16;
 

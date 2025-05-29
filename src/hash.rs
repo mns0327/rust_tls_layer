@@ -89,9 +89,7 @@ pub fn sha256(msg: &Vec<u8>) -> Vec<u8> {
 pub fn hmac_sha256(key: &Vec<u8>, msg: &Vec<u8>) -> Vec<u8> {
     let block_size: usize = 64;
     let mut key = key.clone();
-    if key.len() > block_size {
-        key = sha256(&mut key);
-    }
+    key.resize(block_size, 0);
 
     for _ in key.len()..block_size {
         key.push(0);
@@ -106,11 +104,10 @@ pub fn hmac_sha256(key: &Vec<u8>, msg: &Vec<u8>) -> Vec<u8> {
     }
     
     i_key_pad.extend(msg);
+    let inner_hash = sha256(&i_key_pad);
 
-    let tmp = sha256(&mut i_key_pad);
     let mut hmac_msg = o_key_pad.clone();
-    hmac_msg.extend(tmp);
-
+    hmac_msg.extend(inner_hash);
     sha256(&mut hmac_msg)
 }
 
