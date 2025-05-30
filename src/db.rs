@@ -1,11 +1,14 @@
 use std::fmt::{self, write};
 use crate::net;
-use crate::rand::rand;
+use crate::rand;
 use crate::hash::{self, hmac_sha256, VecStructU8};
 use crate::handshake::{HandshakeType, Handshake, ClientKeyExchange, HandshakeFragment, Finished};
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::io::Error;
+use crate::crypto;
+use crate::x509;
+use crate::aes_crypto;
+use std::io::{Error, ErrorKind};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ProtocolVersion {
@@ -296,9 +299,11 @@ impl usizeToVec for usize {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Handshake_type {
-    ClientHello = 1,
-    ServerHello = 2,
+    ClientHello = 0x01,
+    ServerHello = 0x02,
     Certificate = 0x0b,
+    ClientKeyExchange = 0x16,
+    Finished = 0x14,
 }
 
 impl Handshake_type {
@@ -307,15 +312,19 @@ impl Handshake_type {
             1 => Some(Self::ClientHello),
             2 => Some(Self::ServerHello),
             0x0b => Some(Self::Certificate),
+            0x16 => Some(Self::ClientKeyExchange),
+            0x14 => Some(Self::Finished),
             _ => None
         }
     }
 
     pub fn to_u8(self) -> u8 {
         match self {
-            Self::ClientHello => 1,
-            Self::ServerHello => 2,
+            Self::ClientHello => 0x01,
+            Self::ServerHello => 0x02,
             Self::Certificate => 0x0b,
+            Self::ClientKeyExchange => 0x16,
+            Self::Finished => 0x14,
         }
     }
 
@@ -324,6 +333,8 @@ impl Handshake_type {
             Self::ClientHello => "ClientHello".to_string(),
             Self::ServerHello => "ServerHello".to_string(),
             Self::Certificate => "Certificate".to_string(),
+            Self::ClientKeyExchange => "ClientKeyExchange".to_string(),
+            Self::Finished => "Finished".to_string(),
         }
     }
 }
@@ -350,21 +361,105 @@ impl HandshakeHash {
 pub struct TLSStreamManager {
     pub stream: TcpStream,
     pub handshake_hash: HandshakeHash,
+    pub spec_change: u8,        // 0x01: client, 0x10: server
+    pub security_parameters: SecurityParameters,
 }
 
 impl TLSStreamManager {
     pub fn new(server_url: &str) -> Self {
         let stream = TcpStream::connect(server_url).unwrap();
         let handshake_hash = HandshakeHash::new();
-        Self{ stream, handshake_hash }
+        Self{ stream, handshake_hash, spec_change: 0x00, security_parameters: SecurityParameters::new() }
     }
     
-    pub fn send(&mut self, tls: &mut TLSPlaintext) -> Result<(), Error> {
+    // pub fn send(&mut self, tls_vec: &mut TLSPlaintext) -> Result<(), Error> {
+    //     // if self.spec_change & 0x01 != 0 {
+    //     //     let encrypted = self.encrypt(tls_vec.clone())?;
+    //     //     let mut tls = TLSPlaintext::new_handshake_data(ProtocolVersion::new(3, 3), encrypted.clone());
+    //     //     println!("tls: {:?}", tls.to_vec().hex_display());
+    //     //     self.stream.write(&tls.to_vec())?;
+    //     // // } else {
+    //     self.stream.write(&tls_vec.to_vec())?;
+    //     // }
+    //     Ok(())
+    // }
+
+    pub fn send(&mut self, tls: &mut TLSPlaintext) -> Result<TLSPlaintext, Error> {
+        if self.spec_change & 0x01 != 0 {
+            let encrypted = self.encrypt(tls.fragment.to_vec())?;
+            let mut tls = TLSPlaintext::new_handshake_data(ProtocolVersion::new(3, 3), encrypted.clone());
+            self.stream.write(&tls.to_vec())?;
+            Ok(tls)
+        } else {
+            panic!("spec_change is 0")
+        }
+    }
+
+    pub fn send_handshake(&mut self, handshake_type: Handshake_type) -> Result<TLSPlaintext, Error> {
+        let mut tls: TLSPlaintext;
+
+        if handshake_type == Handshake_type::ClientHello {
+            tls = TLSPlaintext::new(22, ProtocolVersion::new(3, 3));
+            if let TLSFragment::Handshake(handshake) = &tls.fragment {
+                if let HandshakeFragment::ClientHello(client_hello) = &handshake.fragment {
+                    self.security_parameters.client_random = client_hello.random.to_vec();
+                }
+            }
+        } else if handshake_type == Handshake_type::ClientKeyExchange {
+            let mut pms: Vec<u8> = vec![0x03, 0x03];
+            pms.extend(rand::rand_len(46));
+            
+            let mut seed: Vec<u8> = vec![];
+            seed.extend(&self.security_parameters.client_random);
+            seed.extend(&self.security_parameters.server_random);
+    
+            self.security_parameters.master_secret = crypto::prf(pms.clone(), b"master secret".to_vec(), seed, 48);
+            
+            let mut seed: Vec<u8> = self.security_parameters.server_random.to_vec();
+            seed.extend(&self.security_parameters.client_random);
+
+            let key_block_len: usize = 16 + 16 + 4 + 4;
+            let key_block: Vec<u8> = crypto::prf(self.security_parameters.master_secret.clone(), b"key expansion".to_vec(), seed, key_block_len);
+            self.security_parameters.client_write_key = key_block[0..16].to_vec();
+            self.security_parameters.server_write_key = key_block[16..32].to_vec();
+            self.security_parameters.client_write_iv = key_block[32..36].to_vec();
+            self.security_parameters.server_write_iv = key_block[36..40].to_vec();
+
+            println!("public_key: {:?}", self.security_parameters.public_key);
+            let encrypted = crypto::RSA::encrypt(&pms, &self.security_parameters.public_key.n, &self.security_parameters.public_key.e);
+
+            tls = TLSPlaintext::new_handshake_client_key_exchange(ProtocolVersion::new(3, 3), encrypted);
+        } else if handshake_type == Handshake_type::Finished {
+            let verify_data = crypto::prf(self.security_parameters.master_secret.clone(), b"client finished".to_vec(), self.handshake_hash.digest().to_vec(), 12);
+            tls = TLSPlaintext::new_handshake_finished(ProtocolVersion::new(3, 3), verify_data);
+        } else {
+            panic!("Unsupported handshake type: {:?}", handshake_type);
+        }
+
         if tls.content_type == ContentType::handshake {
             self.handshake_hash.update(tls.fragment.to_vec());
         }
+
+        if self.spec_change & 0x01 != 0 {
+            let encrypted = self.encrypt(tls.fragment.to_vec())?;
+            tls = TLSPlaintext::new_handshake_data(ProtocolVersion::new(3, 3), encrypted.clone());
+        }
+
         self.stream.write(&tls.to_vec())?;
-        Ok(())
+
+        if tls.content_type == ContentType::change_cipher_spec {
+            self.spec_change |= 0x01;
+        }
+        Ok(tls)
+    }
+
+    pub fn send_spec_change(&mut self) -> Result<TLSPlaintext, Error> {
+        let mut tls = TLSPlaintext::new_change_cipher_spec();
+        self.stream.write(&tls.to_vec())?;
+        if tls.content_type == ContentType::change_cipher_spec {
+            self.spec_change |= 0x01;
+        }
+        Ok(tls)
     }
     
     pub fn read(&mut self) -> Result<TLSPlaintext, Error> {
@@ -375,10 +470,115 @@ impl TLSStreamManager {
         let mut handshake_buffer: Vec<u8> = vec![0 as u8; handshake_len as usize];
         self.stream.read(&mut handshake_buffer)?;
         buffer.extend(handshake_buffer);
-        let mut tls = TLSPlaintext::from_vec(buffer);
+        
+        let mut tls: TLSPlaintext;
+
+        if self.spec_change & 0x10 != 0 {
+            tls = TLSPlaintext::new_handshake_data(ProtocolVersion::new(3, 3), buffer[5..].to_vec());
+            if let TLSFragment::Handshake(handshake) = &tls.fragment {
+                if let HandshakeFragment::Unknown(unknown) = &handshake.fragment {
+                    let decrypted = self.decrypt(unknown.clone())?;
+                    let handshake = Handshake::from_vec(decrypted);
+                    tls.fragment = TLSFragment::Handshake(handshake);
+                }
+            }
+        } else {
+            tls = TLSPlaintext::from_vec(buffer);
+        }
+    
+
+        if let TLSFragment::Handshake(handshake) = &tls.fragment {
+            if let HandshakeFragment::ServerHello(server_hello) = &handshake.fragment {
+                self.security_parameters.server_random = server_hello.random.to_vec();
+            } else if let HandshakeFragment::Certificate(certificate) = &handshake.fragment {
+                self.security_parameters.public_key = certificate.tbsCertificate[0].tbsCertificate.subject_public_key_info.publicKey.clone();
+            }
+        }
+
+        if let TLSFragment::Handshake(handshake) = &tls.fragment {
+            if let HandshakeFragment::Finished(finished) = &handshake.fragment {
+                println!("handshake_hash: {:?}", self.handshake_hash.digest().to_vec().hex_display());
+                let verify_data = crypto::prf(self.security_parameters.master_secret.clone(), b"server finished".to_vec(), self.handshake_hash.digest().to_vec(), 12);
+                if finished.verify_data == verify_data {
+                    println!("finished verified!: {:?}", finished.verify_data.hex_display());
+                } else {
+                    panic!("finished: {:?}", finished.verify_data.hex_display());
+                }
+            }
+        }
+
         if tls.content_type == ContentType::handshake {
             self.handshake_hash.update(tls.fragment.to_vec());
+            // println!("tls.fragment: {:?}", tls.fragment.to_vec().hex_display());
         }
+
+        if tls.content_type == ContentType::change_cipher_spec {
+            self.spec_change |= 0x10;
+        }
+
         Ok(tls)
+    }
+
+    pub fn encrypt(&mut self, data: Vec<u8>) -> Result<Vec<u8>, Error> {
+        // let aad = finished_tls.to_vec()[..5].to_vec();
+        let mut nonce: Vec<u8> = self.security_parameters.client_write_iv.clone();
+        // let explicit_nonce: Vec<u8> = rand::rand_len(8);
+        let explicit_nonce: Vec<u8> = [0; 8].to_vec();
+        nonce.extend(&explicit_nonce);
+    
+        let aes_gcm = aes_crypto::AES_GCM::new(self.security_parameters.client_write_key.clone());
+    
+        let mut aad: Vec<u8> = [0; 8].to_vec();
+        aad.extend([0x16]);
+        aad.extend([0x03, 0x03]);
+        aad.extend([0x00, 0x10]);
+        let encrypted = aes_gcm.encrypt(nonce.clone(), data.clone(), aad.clone());
+    
+        let mut encrypted_data: Vec<u8> = explicit_nonce;
+        encrypted_data.extend(encrypted.clone());
+
+        Ok(encrypted_data)
+    }
+
+    pub fn decrypt(&mut self, data: Vec<u8>) -> Result<Vec<u8>, Error> {
+        let mut nonce: Vec<u8> = self.security_parameters.server_write_iv.clone();
+        nonce.extend(&data[..8]);
+
+        let aes_gcm = aes_crypto::AES_GCM::new(self.security_parameters.server_write_key.clone());
+
+        let mut aad: Vec<u8> = [0; 8].to_vec();
+        aad.extend([0x16]);
+        aad.extend([0x03, 0x03]);
+        aad.extend([0x00, 0x10]);
+
+        let decrypted = aes_gcm.decrypt(nonce.clone(), data[8..].to_vec(), aad.clone());
+
+        Ok(decrypted)
+    }
+}
+
+pub struct SecurityParameters {
+    pub master_secret: Vec<u8>,
+    pub client_random: Vec<u8>,
+    pub server_random: Vec<u8>,
+    pub public_key: x509::PublicKey,
+    pub client_write_key: Vec<u8>,
+    pub server_write_key: Vec<u8>,
+    pub client_write_iv: Vec<u8>,
+    pub server_write_iv: Vec<u8>,
+}
+
+impl SecurityParameters {
+    pub fn new() -> Self {
+        Self {
+            master_secret: vec![],
+            client_random: vec![],
+            server_random: vec![], 
+            public_key: x509::PublicKey{ value: vec![], n: vec![], e: vec![] },
+            client_write_key: vec![],
+            server_write_key: vec![],
+            client_write_iv: vec![],
+            server_write_iv: vec![],
+        }
     }
 }

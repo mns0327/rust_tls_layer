@@ -340,7 +340,7 @@ impl Extensions {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PublicKey {
     pub value: Vec<u8>,
     pub n: Vec<u8>,

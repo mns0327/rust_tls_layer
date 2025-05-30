@@ -55,7 +55,7 @@ impl HandshakeFragment {
             HandshakeType::server_hello => HandshakeFragment::ServerHello(HandshakeServerHello::from_vec(vec)),
             HandshakeType::certificate => HandshakeFragment::Certificate(HandshakeCertificate::from_vec(vec)),
             HandshakeType::server_hello_done => HandshakeFragment::ServerHelloDone(ServerHelloDone::new()),
-            
+            HandshakeType::finished => HandshakeFragment::Finished(Finished::from_vec(vec)),
             _ => panic!("Unsupported handshake fragment: {:?}", msg_type)
         };
         fragment
@@ -78,6 +78,9 @@ impl Finished {
         vec
     }
 
+    pub fn from_vec(vec: Vec<u8>) -> Self {
+        Self { verify_data: vec }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
