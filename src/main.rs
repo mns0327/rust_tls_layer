@@ -22,8 +22,10 @@ fn main() -> std::io::Result<()> {
     let mut client_random: [u8; 32] = [0; 32];
     let mut server_random: [u8; 32] = [0; 32];
     let mut client_hello_tls = TLSPlaintext::new(22, ProtocolVersion::new(3, 3));
-    let mut stream = TcpStream::connect("localhost:4433")?;
-    net::write_tls(&mut stream, &mut client_hello_tls)?;  // client hello
+    
+
+    let mut steam_manager = db::TLSStreamManager::new("localhost:4433");
+    steam_manager.send(&mut client_hello_tls)?;  // client hello
     if let TLSFragment::Handshake(handshake) = &client_hello_tls.fragment {
         if let HandshakeFragment::ClientHello(client_hello) = &handshake.fragment {
             client_random = client_hello.random;
@@ -32,7 +34,7 @@ fn main() -> std::io::Result<()> {
     println!("{:?}", client_hello_tls);
     println!("--------------------------------");
 
-    let mut server_hello_tls = net::read_tls(&mut stream)?;  // server hello
+    let mut server_hello_tls = steam_manager.read()?;  // server hello
     if let TLSFragment::Handshake(handshake) = &server_hello_tls.fragment {
         if let HandshakeFragment::ServerHello(server_hello) = &handshake.fragment {
             server_random = server_hello.random;
@@ -41,11 +43,11 @@ fn main() -> std::io::Result<()> {
     println!("{:?}", server_hello_tls);
     println!("--------------------------------");
     
-    let mut certificate_tls = net::read_tls(&mut stream)?;  // certificate
+    let mut certificate_tls = steam_manager.read()?;  // certificate
     println!("{:?}", certificate_tls);
     println!("--------------------------------");
 
-    let mut server_hello_done_tls = net::read_tls(&mut stream)?;
+    let mut server_hello_done_tls = steam_manager.read()?;
     println!("{:?}", server_hello_done_tls);
     println!("{:?}", server_hello_done_tls.to_vec().hex_display());
     println!("--------------------------------");
@@ -62,12 +64,12 @@ fn main() -> std::io::Result<()> {
     }
 
     let mut client_key_exchange_tls = TLSPlaintext::new_handshake_client_key_exchange(ProtocolVersion::new(3, 3), encrypted);
-    net::write_tls(&mut stream, &mut client_key_exchange_tls)?;  // client key exchange
+    steam_manager.send(&mut client_key_exchange_tls)?;  // client key exchange
     println!("{:?}", client_key_exchange_tls);
     println!("--------------------------------");
 
     let mut change_cipher_spec_tls = TLSPlaintext::new_change_cipher_spec();
-    net::write_tls(&mut stream, &mut change_cipher_spec_tls)?;
+    steam_manager.send(&mut change_cipher_spec_tls)?;
     println!("{:?}", change_cipher_spec_tls);
     println!("--------------------------------");
 
@@ -94,15 +96,8 @@ fn main() -> std::io::Result<()> {
     let server_write_key = key_block[16..32].to_vec();
     let client_write_iv = key_block[32..36].to_vec();
     let server_write_iv = key_block[36..40].to_vec();
-
-    let mut handshake_message: Vec<u8> = vec![];
-    handshake_message.extend(&client_hello_tls.fragment.to_vec());
-    handshake_message.extend(&server_hello_tls.fragment.to_vec());
-    handshake_message.extend(&certificate_tls.fragment.to_vec());
-    handshake_message.extend(&server_hello_done_tls.fragment.to_vec());
-    handshake_message.extend(&client_key_exchange_tls.fragment.to_vec());
     
-    let handshake_hash = hash::sha256(&handshake_message);
+    let handshake_hash = steam_manager.handshake_hash.digest();
     
     let verify_data = crypto::prf(master_secret.clone(), b"client finished".to_vec(), handshake_hash.clone(), 12);
 
@@ -113,7 +108,6 @@ fn main() -> std::io::Result<()> {
     let mut nonce: Vec<u8> = client_write_iv.clone();
     let explicit_nonce: Vec<u8> = rand_len(8);
     nonce.extend(&explicit_nonce);
-    println!("--------------------------------");
 
     let aes_gcm = aes_crypto::AES_GCM::new(client_write_key.clone());
 
@@ -129,9 +123,9 @@ fn main() -> std::io::Result<()> {
     let mut finished_tls = TLSPlaintext::new_handshake_data(ProtocolVersion::new(3, 3), encrypted_data.clone());
     println!("{:?}", finished_tls.to_vec().hex_display());
 
-    net::write_tls(&mut stream, &mut finished_tls)?;
+    steam_manager.send(&mut finished_tls)?;
 
-    let mut client_finished_tls = net::read_tls(&mut stream)?;
+    let mut client_finished_tls = steam_manager.read()?;
     println!("{:?}", client_finished_tls);
     println!("--------------------------------");
 

@@ -311,7 +311,6 @@ impl HandshakeCertificate {
             let length = u32::from_be_bytes([0, vec[offset], vec[offset + 1], vec[offset + 2]]);
             offset += 3;
             let tbs_certificate = Certificate::from_vec(vec[offset..offset + length as usize].to_vec());
-            println!("tbs_certificate: {:?}", vec[offset..offset + length as usize].to_vec().hex_display());
             tbs_certificates.push(tbs_certificate);
             offset += length as usize;
         }

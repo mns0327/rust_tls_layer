@@ -1,7 +1,11 @@
 use std::fmt::{self, write};
+use crate::net;
 use crate::rand::rand;
-use crate::hash::{VecStructU8, hmac_sha256};
+use crate::hash::{self, hmac_sha256, VecStructU8};
 use crate::handshake::{HandshakeType, Handshake, ClientKeyExchange, HandshakeFragment, Finished};
+use std::io::{Read, Write};
+use std::net::TcpStream;
+use std::io::Error;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ProtocolVersion {
@@ -178,7 +182,7 @@ impl TLSFragment {
 
 #[derive(Debug)]
 pub struct TLSPlaintext {
-    content_type: ContentType,
+    pub content_type: ContentType,
     version: ProtocolVersion,
     pub length: u16,
     pub fragment: TLSFragment,
@@ -321,5 +325,60 @@ impl Handshake_type {
             Self::ServerHello => "ServerHello".to_string(),
             Self::Certificate => "Certificate".to_string(),
         }
+    }
+}
+
+pub struct HandshakeHash {
+    pub data: Vec<u8>
+}
+
+impl HandshakeHash {
+    fn new() -> Self{
+        Self { data: vec![] }
+    }
+
+    pub fn update(&mut self, handshake_data: Vec<u8>) {
+        self.data.extend(handshake_data);
+    }
+
+    // pub fn digest(&self, digest)
+    pub fn digest(&self) -> Vec<u8> {
+        hash::sha256(&self.data)
+    }
+}
+
+pub struct TLSStreamManager {
+    pub stream: TcpStream,
+    pub handshake_hash: HandshakeHash,
+}
+
+impl TLSStreamManager {
+    pub fn new(server_url: &str) -> Self {
+        let stream = TcpStream::connect(server_url).unwrap();
+        let handshake_hash = HandshakeHash::new();
+        Self{ stream, handshake_hash }
+    }
+    
+    pub fn send(&mut self, tls: &mut TLSPlaintext) -> Result<(), Error> {
+        if tls.content_type == ContentType::handshake {
+            self.handshake_hash.update(tls.fragment.to_vec());
+        }
+        self.stream.write(&tls.to_vec())?;
+        Ok(())
+    }
+    
+    pub fn read(&mut self) -> Result<TLSPlaintext, Error> {
+        // handshake 
+        let mut buffer: Vec<u8> = [0 as u8; 5].to_vec();
+        self.stream.read(&mut buffer)?;
+        let handshake_len = u16::from_be_bytes([buffer[3], buffer[4]]);
+        let mut handshake_buffer: Vec<u8> = vec![0 as u8; handshake_len as usize];
+        self.stream.read(&mut handshake_buffer)?;
+        buffer.extend(handshake_buffer);
+        let mut tls = TLSPlaintext::from_vec(buffer);
+        if tls.content_type == ContentType::handshake {
+            self.handshake_hash.update(tls.fragment.to_vec());
+        }
+        Ok(tls)
     }
 }
