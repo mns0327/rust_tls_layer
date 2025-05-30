@@ -23,7 +23,6 @@ fn main() -> std::io::Result<()> {
     let mut server_random: [u8; 32] = [0; 32];
     let mut client_hello_tls = TLSPlaintext::new(22, ProtocolVersion::new(3, 3));
     let mut stream = TcpStream::connect("localhost:4433")?;
-    println!("client_hello_tls: {:?}", client_hello_tls.to_vec().hex_display());
     net::write_tls(&mut stream, &mut client_hello_tls)?;  // client hello
     if let TLSFragment::Handshake(handshake) = &client_hello_tls.fragment {
         if let HandshakeFragment::ClientHello(client_hello) = &handshake.fragment {
@@ -52,8 +51,9 @@ fn main() -> std::io::Result<()> {
     println!("--------------------------------");
 
     let mut encrypted: Vec<u8> = vec![];
-    let mut pms: Vec<u8> = vec![3; 3];
+    let mut pms: Vec<u8> = vec![0x03, 0x03];
     pms.extend(rand_len(46));
+
     if let TLSFragment::Handshake(handshake) = &certificate_tls.fragment {
         if let HandshakeFragment::Certificate(cert) = &handshake.fragment {
             let public_key = &cert.tbsCertificate[0].tbsCertificate.subject_public_key_info.publicKey;
@@ -81,10 +81,7 @@ fn main() -> std::io::Result<()> {
 
     let master_secret = crypto::prf(pms, b"master secret".to_vec(), seed, 48);
 
-    println!("{:?}", master_secret.hex_display());
-
-    let mut seed: Vec<u8> = vec![];
-    seed.extend(&server_random);
+    let mut seed: Vec<u8> = server_random.to_vec();
     seed.extend(&client_random);
 
     let key_block_len: usize = 16 + 16 + 4 + 4;
@@ -97,13 +94,6 @@ fn main() -> std::io::Result<()> {
     let server_write_key = key_block[16..32].to_vec();
     let client_write_iv = key_block[32..36].to_vec();
     let server_write_iv = key_block[36..40].to_vec();
-    
-    // println!("{:?}", &client_hello_tls.fragment.to_vec().hex_display());
-    // println!("{:?}", server_master_key.hex_display());
-    // println!("{:?}", client_write_key.hex_display());
-    // println!("{:?}", server_write_key.hex_display());
-    // println!("{:?}", client_write_iv.hex_display());
-    // println!("{:?}", server_write_iv.hex_display());
 
     let mut handshake_message: Vec<u8> = vec![];
     handshake_message.extend(&client_hello_tls.fragment.to_vec());
@@ -111,25 +101,19 @@ fn main() -> std::io::Result<()> {
     handshake_message.extend(&certificate_tls.fragment.to_vec());
     handshake_message.extend(&server_hello_done_tls.fragment.to_vec());
     handshake_message.extend(&client_key_exchange_tls.fragment.to_vec());
-    println!("{:?}", handshake_message.hex_display());
-
+    
     let handshake_hash = hash::sha256(&handshake_message);
-
+    
     let verify_data = crypto::prf(master_secret.clone(), b"client finished".to_vec(), handshake_hash.clone(), 12);
-
-    println!("{:?}", verify_data.hex_display());
 
     let mut finished_tls = TLSPlaintext::new_handshake_finished(ProtocolVersion::new(3, 3), verify_data);
 
-    println!("{:?}", finished_tls.to_vec().hex_display());
     let finished_plaintext = finished_tls.fragment.to_vec();
     // let aad = finished_tls.to_vec()[..5].to_vec();
     let mut nonce: Vec<u8> = client_write_iv.clone();
     let explicit_nonce: Vec<u8> = rand_len(8);
     nonce.extend(&explicit_nonce);
     println!("--------------------------------");
-
-    println!("{:?}", finished_plaintext.hex_display());
 
     let aes_gcm = aes_crypto::AES_GCM::new(client_write_key.clone());
 
@@ -138,10 +122,6 @@ fn main() -> std::io::Result<()> {
     aad.extend([0x03, 0x03]);
     aad.extend([0x00, 0x10]);
     let encrypted = aes_gcm.encrypt(nonce.clone(), finished_plaintext.clone(), aad.clone());
-    println!("encrypted: {:?}", encrypted.hex_display());
-
-    // let decrypted = aes_gcm.decrypt(nonce.clone(), encrypted.clone(), aad.clone());
-    // println!("decrypted: {:?}", decrypted.hex_display());
 
     let mut encrypted_data: Vec<u8> = explicit_nonce;
     encrypted_data.extend(encrypted.clone());
@@ -152,7 +132,6 @@ fn main() -> std::io::Result<()> {
     net::write_tls(&mut stream, &mut finished_tls)?;
 
     let mut client_finished_tls = net::read_tls(&mut stream)?;
-    println!("client_finished_tls: {:?}", client_finished_tls.to_vec().hex_display());
     println!("{:?}", client_finished_tls);
     println!("--------------------------------");
 

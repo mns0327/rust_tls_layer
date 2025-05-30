@@ -86,20 +86,20 @@ define_enum_macro! {
 define_enum_macro! {
     #[derive(Debug)]
     pub enum CipherSuite {
-        TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 = 0xc02b,
-        TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 = 0xcca9,
-        TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 = 0xc02f,
-        TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 = 0xcca8,
-        TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256 = 0xc023,
-        TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256 = 0xc027,
+        // TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 = 0xc02b,
+        // TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 = 0xcca9,
+        // TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 = 0xc02f,
+        // TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 = 0xcca8,
+        // TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256 = 0xc023,
+        // TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256 = 0xc027,
         TLS_RSA_WITH_AES_128_GCM_SHA256 = 0x9c,
-        TLS_RSA_WITH_AES_128_CBC_SHA256 = 0x3c,
-        TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 = 0xc02c,
-        TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384 = 0xc024,
-        TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 = 0xc030,
-        TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384 = 0xc028,
-        TLS_RSA_WITH_AES_256_GCM_SHA384 = 0x9d,
-        TLS_RSA_WITH_AES_256_CBC_SHA256 = 0x3d
+        // TLS_RSA_WITH_AES_128_CBC_SHA256 = 0x3c,
+        // TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 = 0xc02c,
+        // TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384 = 0xc024,
+        // TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 = 0xc030,
+        // TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384 = 0xc028,
+        // TLS_RSA_WITH_AES_256_GCM_SHA384 = 0x9d,
+        // TLS_RSA_WITH_AES_256_CBC_SHA256 = 0x3d
     }
 }
 
@@ -166,8 +166,13 @@ impl TLSFragment {
         }
     }
 
-    pub fn from_vec(vec: Vec<u8>) -> Self {
-        TLSFragment::Handshake(Handshake::from_vec(vec))
+    pub fn from_vec(content_type: ContentType, vec: Vec<u8>) -> Self {
+        match content_type {
+            ContentType::handshake => TLSFragment::Handshake(Handshake::from_vec(vec)),
+            ContentType::change_cipher_spec => TLSFragment::ChangeCipherSpec(ChangeCipherSpec::new()),
+            ContentType::alert => TLSFragment::Alert(Alert::new()),
+            ContentType::application_data => TLSFragment::ApplicationData(ApplicationData::new()),
+        }
     }
 }
 
@@ -259,7 +264,7 @@ impl TLSPlaintext {
         let content_type = ContentType::from_u16(u16::from_be_bytes([0, vec[0]])).unwrap();
         let version = ProtocolVersion::new(vec[1], vec[2]);
         let length = u16::from_be_bytes([vec[3], vec[4]]);
-        let fragment = TLSFragment::from_vec(vec[5..].to_vec());
+        let fragment = TLSFragment::from_vec(content_type, vec[5..].to_vec());
         Self {
             content_type,
             version,

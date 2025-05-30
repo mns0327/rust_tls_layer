@@ -55,6 +55,7 @@ impl HandshakeFragment {
             HandshakeType::server_hello => HandshakeFragment::ServerHello(HandshakeServerHello::from_vec(vec)),
             HandshakeType::certificate => HandshakeFragment::Certificate(HandshakeCertificate::from_vec(vec)),
             HandshakeType::server_hello_done => HandshakeFragment::ServerHelloDone(ServerHelloDone::new()),
+            
             _ => panic!("Unsupported handshake fragment: {:?}", msg_type)
         };
         fragment
@@ -95,20 +96,20 @@ impl HandshakeClientHello {
             random: rand(),
             session_id: rand(),
             cipher_suites: vec![
-                CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-                CipherSuite::TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
-                CipherSuite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-                CipherSuite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
-                CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256,
-                CipherSuite::TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256,
+                // CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+                // CipherSuite::TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+                // CipherSuite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+                // CipherSuite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+                // CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256,
+                // CipherSuite::TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256,
                 CipherSuite::TLS_RSA_WITH_AES_128_GCM_SHA256,
-                CipherSuite::TLS_RSA_WITH_AES_128_CBC_SHA256,
-                CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-                CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384,
-                CipherSuite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-                CipherSuite::TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384,
-                CipherSuite::TLS_RSA_WITH_AES_256_GCM_SHA384,
-                CipherSuite::TLS_RSA_WITH_AES_256_CBC_SHA256
+                // CipherSuite::TLS_RSA_WITH_AES_128_CBC_SHA256,
+                // CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+                // CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384,
+                // CipherSuite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+                // CipherSuite::TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384,
+                // CipherSuite::TLS_RSA_WITH_AES_256_GCM_SHA384,
+                // CipherSuite::TLS_RSA_WITH_AES_256_CBC_SHA256
             ],
             compression_methods: vec![CompressionMethod::null],
         }
@@ -154,7 +155,7 @@ impl HandshakeClientHello {
 pub struct HandshakeServerHello {
     version: ProtocolVersion,
     pub random: [u8; 32],
-    pub session_id: [u8; 32],
+    pub session_id: Vec<u8>,
     pub chosen_cipher: CipherSuite,
     pub compression_method: CompressionMethod,
 }
@@ -164,8 +165,8 @@ impl HandshakeServerHello {
         Self {
             version: ProtocolVersion::new(3, 3),
             random: rand(),
-            session_id: rand(),
-            chosen_cipher: CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+            session_id: rand().to_vec(),
+            chosen_cipher: CipherSuite::TLS_RSA_WITH_AES_128_GCM_SHA256,
             compression_method: CompressionMethod::null,
         }
     }
@@ -175,7 +176,7 @@ impl HandshakeServerHello {
         vec.extend(self.version.to_vec());
         vec.extend(self.random);
         vec.extend([self.session_id.len() as u8]);
-        vec.extend(self.session_id);
+        vec.extend(self.session_id.clone());
         vec.extend(self.chosen_cipher.to_vec());
         vec.extend([self.compression_method.to_vec()[1]]);
         vec
@@ -185,7 +186,11 @@ impl HandshakeServerHello {
         let version = ProtocolVersion::new(vec[0], vec[1]);
         let random = vec[2..34].try_into().unwrap();
         let session_id_len = vec[34];
-        let session_id = vec[35..35 + session_id_len as usize].try_into().unwrap();
+        let session_id: Vec<u8> = if session_id_len == 0 {
+            vec![]
+        } else {
+            vec[35..35 + session_id_len as usize].to_vec()
+        };
         let cipher_start = 35 + session_id_len as usize;
         let chosen_cipher = CipherSuite::from_u16(u16::from_be_bytes([vec[cipher_start], vec[cipher_start + 1]])).unwrap();
         let compression_method = CompressionMethod::from_u16(u16::from_be_bytes([0, vec[cipher_start + 2]])).unwrap();
@@ -306,6 +311,7 @@ impl HandshakeCertificate {
             let length = u32::from_be_bytes([0, vec[offset], vec[offset + 1], vec[offset + 2]]);
             offset += 3;
             let tbs_certificate = Certificate::from_vec(vec[offset..offset + length as usize].to_vec());
+            println!("tbs_certificate: {:?}", vec[offset..offset + length as usize].to_vec().hex_display());
             tbs_certificates.push(tbs_certificate);
             offset += length as usize;
         }

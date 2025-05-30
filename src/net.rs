@@ -17,7 +17,6 @@ pub fn read_tls(stream: &mut TcpStream) -> Result<TLSPlaintext, Error> {
     let mut handshake_buffer: Vec<u8> = vec![0 as u8; handshake_len as usize];
     stream.read(&mut handshake_buffer)?;
     buffer.extend(handshake_buffer);
-    println!("{:?}", buffer.to_vec().hex_display());
     Ok(TLSPlaintext::from_vec(buffer))
 }
 
