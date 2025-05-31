@@ -22,7 +22,7 @@ fn main() -> std::io::Result<()> {
     let mut client_random: [u8; 32] = [0; 32];
     let mut server_random: [u8; 32] = [0; 32];    
 
-    let mut steam_manager = db::TLSStreamManager::new("localhost:4433");
+    let mut steam_manager = db::TLSStreamManager::new("google.com:443");
     let mut client_hello_tls = steam_manager.send_handshake(db::Handshake_type::ClientHello)?;  // client hello
     println!("{:?}", client_hello_tls);
     println!("--------------------------------");
@@ -59,6 +59,17 @@ fn main() -> std::io::Result<()> {
     let mut server_finished_tls = steam_manager.read()?;
     println!("{:?}", server_finished_tls);
     println!("--------------------------------");
+
+    let mut data_tls = steam_manager.send_data(b"GET / HTTP/1.1\r\nHost: google.com\r\nConnection: close\r\nUser-Agent: CustomTLSClient/1.0\r\nAccept: */*\r\n\r\n".to_vec())?;
+    println!("{:?}", data_tls);
+    println!("--------------------------------");
+
+    let mut data_tls = steam_manager.read()?;
+    println!("{:?}", data_tls);
+    println!("--------------------------------");
+    if let TLSFragment::ApplicationData(application_data) = &data_tls.fragment {
+        println!("{}", String::from_utf8_lossy(&application_data.data));
+    }
 
     Ok(())
 }

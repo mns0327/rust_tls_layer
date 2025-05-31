@@ -144,13 +144,17 @@ impl Alert {
 
 
 #[derive(Debug, PartialEq, Eq)]
-struct ApplicationData {
-
+pub struct ApplicationData {
+    pub data: Vec<u8>,
 }
 
 impl ApplicationData {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(data: Vec<u8>) -> Self {
+        Self { data }
+    }
+
+    pub fn to_vec(&self) -> Vec<u8> {
+        self.data.clone()
     }
 }
 
@@ -168,7 +172,7 @@ impl TLSFragment {
             TLSFragment::ChangeCipherSpec(change_cipher_spec) => change_cipher_spec.to_vec(),
             // TLSFragment::Alert(alert) => alert.to_vec(),
             TLSFragment::Handshake(handshake) => handshake.to_vec(),
-            // TLSFragment::ApplicationData(application_data) => application_data.to_vec(),
+            TLSFragment::ApplicationData(application_data) => application_data.to_vec(),
             _ => panic!("Unsupported fragment type: {:?}", self)
         }
     }
@@ -178,7 +182,7 @@ impl TLSFragment {
             ContentType::handshake => TLSFragment::Handshake(Handshake::from_vec(vec)),
             ContentType::change_cipher_spec => TLSFragment::ChangeCipherSpec(ChangeCipherSpec::new()),
             ContentType::alert => TLSFragment::Alert(Alert::new()),
-            ContentType::application_data => TLSFragment::ApplicationData(ApplicationData::new()),
+            ContentType::application_data => TLSFragment::ApplicationData(ApplicationData::new(vec![])),
         }
     }
 }
@@ -198,7 +202,7 @@ impl TLSPlaintext {
         let fragment =  match contentType {
             ContentType::alert => { TLSFragment::Alert(Alert::new()) }
             ContentType::handshake => { TLSFragment::Handshake(Handshake::new(1)) }
-            ContentType::application_data => { TLSFragment::ApplicationData(ApplicationData::new()) }
+            ContentType::application_data => { TLSFragment::ApplicationData(ApplicationData::new(vec![])) }
             ContentType::change_cipher_spec => { TLSFragment::ChangeCipherSpec(ChangeCipherSpec::new()) }
             _ => { panic!("Unsupported content type: {:?}", contentType) }
         };
@@ -244,11 +248,11 @@ impl TLSPlaintext {
         }
     }
 
-    pub fn new_handshake_data(version: ProtocolVersion, data: Vec<u8>) -> Self {
+    pub fn new_handshake_data(content_type: ContentType, version: ProtocolVersion, data: Vec<u8>) -> Self {
         let mut handshake = Handshake::new(255);
         handshake.fragment = HandshakeFragment::Unknown(data);
         Self { 
-            content_type: ContentType::handshake, 
+            content_type: content_type, 
             version, 
             length: handshake.to_vec().len() as u16,    
             fragment: TLSFragment::Handshake(handshake)
@@ -363,13 +367,14 @@ pub struct TLSStreamManager {
     pub handshake_hash: HandshakeHash,
     pub spec_change: u8,        // 0x01: client, 0x10: server
     pub security_parameters: SecurityParameters,
+    pub seq_num: u64,
 }
 
 impl TLSStreamManager {
     pub fn new(server_url: &str) -> Self {
         let stream = TcpStream::connect(server_url).unwrap();
         let handshake_hash = HandshakeHash::new();
-        Self{ stream, handshake_hash, spec_change: 0x00, security_parameters: SecurityParameters::new() }
+        Self{ stream, handshake_hash, spec_change: 0x00, security_parameters: SecurityParameters::new(), seq_num: 0 }
     }
     
     // pub fn send(&mut self, tls_vec: &mut TLSPlaintext) -> Result<(), Error> {
@@ -386,8 +391,8 @@ impl TLSStreamManager {
 
     pub fn send(&mut self, tls: &mut TLSPlaintext) -> Result<TLSPlaintext, Error> {
         if self.spec_change & 0x01 != 0 {
-            let encrypted = self.encrypt(tls.fragment.to_vec())?;
-            let mut tls = TLSPlaintext::new_handshake_data(ProtocolVersion::new(3, 3), encrypted.clone());
+            let encrypted = self.encrypt(tls.fragment.to_vec(), ContentType::handshake)?;
+            let mut tls = TLSPlaintext::new_handshake_data(ContentType::handshake, ProtocolVersion::new(3, 3), encrypted.clone());
             self.stream.write(&tls.to_vec())?;
             Ok(tls)
         } else {
@@ -441,8 +446,8 @@ impl TLSStreamManager {
         }
 
         if self.spec_change & 0x01 != 0 {
-            let encrypted = self.encrypt(tls.fragment.to_vec())?;
-            tls = TLSPlaintext::new_handshake_data(ProtocolVersion::new(3, 3), encrypted.clone());
+            let encrypted = self.encrypt(tls.fragment.to_vec(), ContentType::handshake)?;
+            tls = TLSPlaintext::new_handshake_data(ContentType::handshake, ProtocolVersion::new(3, 3), encrypted.clone());
         }
 
         self.stream.write(&tls.to_vec())?;
@@ -474,12 +479,19 @@ impl TLSStreamManager {
         let mut tls: TLSPlaintext;
 
         if self.spec_change & 0x10 != 0 {
-            tls = TLSPlaintext::new_handshake_data(ProtocolVersion::new(3, 3), buffer[5..].to_vec());
+            tls = TLSPlaintext::new_handshake_data(ContentType::handshake, ProtocolVersion::new(3, 3), buffer[5..].to_vec());
             if let TLSFragment::Handshake(handshake) = &tls.fragment {
                 if let HandshakeFragment::Unknown(unknown) = &handshake.fragment {
-                    let decrypted = self.decrypt(unknown.clone())?;
-                    let handshake = Handshake::from_vec(decrypted);
-                    tls.fragment = TLSFragment::Handshake(handshake);
+                    let content_type = ContentType::from_u16(buffer[0] as u16).unwrap();
+                    let decrypted = self.decrypt(unknown.clone(), content_type.clone())?;
+                    if content_type == ContentType::application_data {
+                        tls.fragment = TLSFragment::ApplicationData(ApplicationData::new(decrypted));
+                    } else if content_type == ContentType::handshake {
+                        let handshake = Handshake::from_vec(decrypted);
+                        tls.fragment = TLSFragment::Handshake(handshake);
+                    } else {
+                        panic!("Unsupported content type on decrypt: {:?}", content_type);
+                    }
                 }
             }
         } else {
@@ -509,7 +521,6 @@ impl TLSStreamManager {
 
         if tls.content_type == ContentType::handshake {
             self.handshake_hash.update(tls.fragment.to_vec());
-            // println!("tls.fragment: {:?}", tls.fragment.to_vec().hex_display());
         }
 
         if tls.content_type == ContentType::change_cipher_spec {
@@ -519,19 +530,19 @@ impl TLSStreamManager {
         Ok(tls)
     }
 
-    pub fn encrypt(&mut self, data: Vec<u8>) -> Result<Vec<u8>, Error> {
+    pub fn encrypt(&mut self, data: Vec<u8>, content_type: ContentType) -> Result<Vec<u8>, Error> {
         // let aad = finished_tls.to_vec()[..5].to_vec();
         let mut nonce: Vec<u8> = self.security_parameters.client_write_iv.clone();
         // let explicit_nonce: Vec<u8> = rand::rand_len(8);
-        let explicit_nonce: Vec<u8> = [0; 8].to_vec();
+        let explicit_nonce: Vec<u8> = rand::rand_len(8);
         nonce.extend(&explicit_nonce);
     
         let aes_gcm = aes_crypto::AES_GCM::new(self.security_parameters.client_write_key.clone());
-    
-        let mut aad: Vec<u8> = [0; 8].to_vec();
-        aad.extend([0x16]);
+
+        let mut aad: Vec<u8> = u64::to_be_bytes(self.seq_num).to_vec();
+        aad.extend([content_type.to_vec()[1]]);
         aad.extend([0x03, 0x03]);
-        aad.extend([0x00, 0x10]);
+        aad.extend(u16::to_be_bytes((data.len()) as u16));
         let encrypted = aes_gcm.encrypt(nonce.clone(), data.clone(), aad.clone());
     
         let mut encrypted_data: Vec<u8> = explicit_nonce;
@@ -540,20 +551,29 @@ impl TLSStreamManager {
         Ok(encrypted_data)
     }
 
-    pub fn decrypt(&mut self, data: Vec<u8>) -> Result<Vec<u8>, Error> {
+    pub fn decrypt(&mut self, data: Vec<u8>, content_type: ContentType) -> Result<Vec<u8>, Error> {
         let mut nonce: Vec<u8> = self.security_parameters.server_write_iv.clone();
         nonce.extend(&data[..8]);
 
         let aes_gcm = aes_crypto::AES_GCM::new(self.security_parameters.server_write_key.clone());
 
-        let mut aad: Vec<u8> = [0; 8].to_vec();
-        aad.extend([0x16]);
+        let mut aad: Vec<u8> = u64::to_be_bytes(self.seq_num).to_vec();
+        aad.extend([content_type.to_vec()[1]]);
         aad.extend([0x03, 0x03]);
-        aad.extend([0x00, 0x10]);
+        aad.extend(u16::to_be_bytes((data.len() - 8 - 16) as u16));
 
         let decrypted = aes_gcm.decrypt(nonce.clone(), data[8..].to_vec(), aad.clone());
+        self.seq_num += 1;
 
         Ok(decrypted)
+    }
+
+    pub fn send_data(&mut self, data: Vec<u8>) -> Result<TLSPlaintext, Error> {
+        let encrypted = self.encrypt(data.clone(), ContentType::application_data)?;
+        let mut tls = TLSPlaintext::new_handshake_data(ContentType::application_data, ProtocolVersion::new(3, 3), encrypted);
+        println!("tls: {:?}", tls.to_vec().hex_display());
+        self.stream.write(&tls.to_vec())?;
+        Ok(tls)
     }
 }
 
