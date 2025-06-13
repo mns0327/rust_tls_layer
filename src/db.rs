@@ -41,6 +41,11 @@ macro_rules! define_enum_macro {
         }
 
         impl $name {
+            pub fn to_string(&self) -> String {
+                match self {
+                    $(Self::$variant => stringify!($variant).to_string(),)*
+                }
+            }
 
             pub fn from_u16(value: u16) -> Option<Self> {
                 match value {
@@ -65,6 +70,12 @@ macro_rules! define_enum_macro {
             pub fn to_vec(self) -> Vec<u8> {
                 let mut vec: Vec<u8> = Vec::new();
                 vec.extend(self.to_u16().to_be_bytes());
+                vec
+            }
+
+            pub fn iter() -> Vec<Self>{
+                let mut vec = Vec::new();
+                $(vec.push(Self::$variant);)*
                 vec
             }
         }
@@ -107,6 +118,22 @@ define_enum_macro! {
         // TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384 = 0xc028,
         // TLS_RSA_WITH_AES_256_GCM_SHA384 = 0x9d,
         // TLS_RSA_WITH_AES_256_CBC_SHA256 = 0x3d
+    }
+}
+
+impl CipherSuite {
+    pub fn parse(self) {
+        let mut cipher_str = self.to_string();
+        cipher_str = cipher_str.replace("TLS_", "");
+        let mut cipher_str_vec = cipher_str.split("_WITH_");
+        let key_exchange = cipher_str_vec.next().unwrap();
+        let cipher = cipher_str_vec.next().unwrap();
+        println!("{}", key_exchange);
+        println!("{}", cipher);
+    }
+
+    pub fn get_key_block_info(self) -> (usize, usize) {
+        (16, 4)
     }
 }
 
@@ -423,12 +450,12 @@ impl TLSStreamManager {
             let mut seed: Vec<u8> = self.security_parameters.server_random.to_vec();
             seed.extend(&self.security_parameters.client_random);
 
-            let key_block_len: usize = 16 + 16 + 4 + 4;
+            let key_block_len: usize = self.security_parameters.key_len * 2 + self.security_parameters.iv_len * 2;
             let key_block: Vec<u8> = crypto::prf(self.security_parameters.master_secret.clone(), b"key expansion".to_vec(), seed, key_block_len);
-            self.security_parameters.client_write_key = key_block[0..16].to_vec();
-            self.security_parameters.server_write_key = key_block[16..32].to_vec();
-            self.security_parameters.client_write_iv = key_block[32..36].to_vec();
-            self.security_parameters.server_write_iv = key_block[36..40].to_vec();
+            self.security_parameters.client_write_key = key_block[0..self.security_parameters.key_len].to_vec();
+            self.security_parameters.server_write_key = key_block[self.security_parameters.key_len..self.security_parameters.key_len * 2].to_vec();
+            self.security_parameters.client_write_iv = key_block[self.security_parameters.key_len * 2..self.security_parameters.key_len * 2 + self.security_parameters.iv_len].to_vec();
+            self.security_parameters.server_write_iv = key_block[self.security_parameters.key_len * 2 + self.security_parameters.iv_len..self.security_parameters.key_len * 2 + self.security_parameters.iv_len * 2].to_vec();
 
             println!("public_key: {:?}", self.security_parameters.public_key);
             let encrypted = crypto::RSA::encrypt(&pms, &self.security_parameters.public_key.n, &self.security_parameters.public_key.e);
@@ -502,6 +529,8 @@ impl TLSStreamManager {
         if let TLSFragment::Handshake(handshake) = &tls.fragment {
             if let HandshakeFragment::ServerHello(server_hello) = &handshake.fragment {
                 self.security_parameters.server_random = server_hello.random.to_vec();
+                let (key_len, iv_len) = server_hello.chosen_cipher.get_key_block_info();
+                self.security_parameters.set_key_lens(key_len, iv_len);
             } else if let HandshakeFragment::Certificate(certificate) = &handshake.fragment {
                 self.security_parameters.public_key = certificate.tbsCertificate[0].tbsCertificate.subject_public_key_info.publicKey.clone();
             }
@@ -586,6 +615,8 @@ pub struct SecurityParameters {
     pub server_write_key: Vec<u8>,
     pub client_write_iv: Vec<u8>,
     pub server_write_iv: Vec<u8>,
+    pub key_len: usize,
+    pub iv_len: usize,
 }
 
 impl SecurityParameters {
@@ -599,6 +630,13 @@ impl SecurityParameters {
             server_write_key: vec![],
             client_write_iv: vec![],
             server_write_iv: vec![],
+            key_len: 0,
+            iv_len: 0,
         }
+    }
+
+    pub fn set_key_lens(&mut self, key_len: usize, iv_len: usize) {
+        self.key_len = key_len;
+        self.iv_len = iv_len;
     }
 }
