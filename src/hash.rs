@@ -9,20 +9,15 @@ impl SHA2 {
         Self {len}
     }
 
-    pub fn sha256(self, msg: &Vec<u8>) -> Vec<u8> {
+    pub fn hash(self, msg: &Vec<u8>) -> Vec<u8> {
         let mut msg = msg.clone();
         let (mut h, block_size, output_size, rounds, word_bytes) = hash_info(self.len);
-        let k = if word_bytes == 4 {
-            SHA2_32_K.to_vec()
-        } else {
-            SHA2_64_K.to_vec()
-        };
-
         let ml = msg.len() as u128 * 8;
         
         msg.push(0x80);
     
-        while (msg.len() + 16) % block_size != 0 {
+        let pad_len = if block_size == 64 { 8 } else { 16 };
+        while (msg.len() + pad_len) % block_size != 0 {
             msg.push(0);
         }
         
@@ -32,40 +27,33 @@ impl SHA2 {
             (ml as u128).to_be_bytes().to_vec()
         };
         msg.extend_from_slice(&ml_bytes);
+        
+        if word_bytes == 4 {
+            self.core_u32(&h, &msg, output_size)
+        } else {
+            self.core_u64(&h, &msg, output_size)
+        }
+    }
 
-        let to_words = |b: &[u8]| -> Vec<u64> {
-            b.chunks(word_bytes)
+    fn core_u64(self, h: &Vec<u64>, msg: &Vec<u8>, output_size: usize) -> Vec<u8> {
+        let mut h = h.clone();
+        fn to_words_64(b: &[u8]) -> Vec<u64> {
+            b.chunks(8)
                 .map(|chunk| {
-                    let mut temp = vec![0u8; word_bytes];
-                    temp[(word_bytes - chunk.len())..].copy_from_slice(chunk);
-                    u64::from_be_bytes({
-                        let mut arr = [0u8; 8];
-                        arr[(8 - word_bytes)..].copy_from_slice(&temp);
-                        arr
-                    })
+                    let mut arr = [0u8; 8];
+                    arr.copy_from_slice(chunk);
+                    u64::from_be_bytes(arr)
                 })
                 .collect()
-        };
+        }
     
-        for block in msg.chunks(block_size) {
-            let mut w = to_words(block);
-            w.resize(rounds, 0);
+        for block in msg.chunks(128) {
+            let mut w = to_words_64(block);
+            w.resize(80, 0);
     
-            for i in 16..rounds {
-                let s0 = if word_bytes == 4 {
-                    let x = w[i-15] as u32;
-                    (x.rotate_right(7) ^ x.rotate_right(18) ^ (x >> 3)) as u64
-                } else {
-                    let x = w[i-15];
-                    x.rotate_right(1) ^ x.rotate_right(8) ^ (x >> 7)
-                };
-                let s1 = if word_bytes == 4 {
-                    let x = w[i-2] as u32;
-                    (x.rotate_right(17) ^ x.rotate_right(19) ^ (x >> 10)) as u64
-                } else {
-                    let x = w[i-2];
-                    x.rotate_right(19) ^ x.rotate_right(61) ^ (x >> 6)
-                };
+            for i in 16..80 {
+                let s0 = w[i-15].rotate_right(1) ^ w[i-15].rotate_right(8) ^ (w[i-15] >> 7);
+                let s1 = w[i-2].rotate_right(19) ^ w[i-2].rotate_right(61) ^ (w[i-2] >> 6);
                 w[i] = w[i-16]
                     .wrapping_add(s0)
                     .wrapping_add(w[i-7])
@@ -81,25 +69,17 @@ impl SHA2 {
             let mut g = h[6];
             let mut hh = h[7];
     
-            for i in 0..rounds {
-                let s1 = if word_bytes == 4 {
-                    rotr(e, 6, word_bytes) ^ rotr(e, 11, word_bytes) ^ rotr(e, 25, word_bytes)
-                } else {
-                    rotr(e, 14, word_bytes) ^ rotr(e, 18, word_bytes) ^ rotr(e, 41, word_bytes)
-                };
+            for i in 0..80 {
+                let s1 = rotr(e, 14, 8) ^ rotr(e, 18, 8) ^ rotr(e, 41, 8);
                 let ch = (e & f) ^ ((!e) & g);
                 let temp1 = hh.wrapping_add(s1)
                     .wrapping_add(ch)
-                    .wrapping_add(k[i])
+                    .wrapping_add(SHA2_64_K[i])
                     .wrapping_add(w[i]);
-                let s0 = if word_bytes == 4 {
-                    rotr(a, 2, word_bytes) ^ rotr(a, 13, word_bytes) ^ rotr(a, 22, word_bytes)
-                } else {
-                    rotr(a, 28, word_bytes) ^ rotr(a, 34, word_bytes) ^ rotr(a, 39, word_bytes)
-                };
+                let s0 = rotr(a, 28, 8) ^ rotr(a, 34, 8) ^ rotr(a, 39, 8);
                 let maj = (a & b) ^ (a & c) ^ (b & c);
                 let temp2 = s0.wrapping_add(maj);
-    
+            
                 hh = g;
                 g = f;
                 f = e;
@@ -119,15 +99,73 @@ impl SHA2 {
             h[6] = h[6].wrapping_add(g);
             h[7] = h[7].wrapping_add(hh);
         }
-    
+
         let mut out = vec![];
         for &val in h.iter() {
-            let bytes = if word_bytes == 4 {
-                (val as u32).to_be_bytes().to_vec()
-            } else {
-                val.to_be_bytes().to_vec()
-            };
-            out.extend(bytes);
+            out.extend(&val.to_be_bytes());
+        }
+        out[..output_size].to_vec()
+    }
+
+    fn core_u32(self, h: &Vec<u64>, msg: &Vec<u8>, output_size: usize) -> Vec<u8> {
+        let mut h = h.iter().map(|&val| val as u32).collect::<Vec<u32>>();
+        
+        for block in msg.chunks(64) {
+            let mut w = [0u32; 64];
+            for (i, word_bytes) in block.chunks(4).take(16).enumerate() {
+                w[i] = u32::from_be_bytes([word_bytes[0], word_bytes[1], word_bytes[2], word_bytes[3]]);
+            }
+            for i in 16..64 {
+                let s0 = w[i-15].rotate_right(7) ^ w[i-15].rotate_right(18) ^ (w[i-15] >> 3);
+                let s1 = w[i-2].rotate_right(17) ^ w[i-2].rotate_right(19) ^ (w[i-2] >> 10);
+                w[i] = w[i-16]
+                    .wrapping_add(s0)
+                    .wrapping_add(w[i-7])
+                    .wrapping_add(s1);
+            }
+        
+            let mut a = h[0];
+            let mut b = h[1];
+            let mut c = h[2];
+            let mut d = h[3];
+            let mut e = h[4];
+            let mut f = h[5];
+            let mut g = h[6];
+            let mut h0 = h[7];
+        
+            for i in 0..64 {
+                let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
+                let ch = (e & f) ^ ((!e) & g);
+                let temp1 = h0.wrapping_add(s1).wrapping_add(ch)
+                    .wrapping_add(SHA2_32_K[i])
+                    .wrapping_add(w[i]);
+                let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
+                let maj = (a & b) ^ (a & c) ^ (b & c);
+                let temp2 = s0.wrapping_add(maj);
+        
+                h0 = g;
+                g = f;
+                f = e;
+                e = d.wrapping_add(temp1);
+                d = c;
+                c = b;
+                b = a;
+                a = temp1.wrapping_add(temp2);
+            }
+        
+            h[0] = h[0].wrapping_add(a);
+            h[1] = h[1].wrapping_add(b);
+            h[2] = h[2].wrapping_add(c);
+            h[3] = h[3].wrapping_add(d);
+            h[4] = h[4].wrapping_add(e);
+            h[5] = h[5].wrapping_add(f);
+            h[6] = h[6].wrapping_add(g);
+            h[7] = h[7].wrapping_add(h0);
+        }
+        
+        let mut out = vec![];
+        for &val in h.iter() {
+            out.extend(val.to_be_bytes());
         }
         out[..output_size].to_vec()
     }
@@ -184,7 +222,7 @@ fn hash_info(len: usize) -> (Vec<u64>, usize, usize, usize, usize) {
     (h_init, block_size, output_size, rounds, word_bytes)
 }
 
-pub const SHA2_32_K: [u64; 64] = [
+pub const SHA2_32_K: [u32; 64] = [
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
     0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
     0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
@@ -227,7 +265,7 @@ pub const SHA2_64_K: [u64; 80] = [
     0x4cc5d4becb3e42b6, 0x597f299cfc657e2a, 0x5fcb6fab3ad6faec, 0x6c44198c4a475817,
 ];
 
-pub fn hmac_sha256(key: &Vec<u8>, msg: &Vec<u8>) -> Vec<u8> {
+pub fn hmac_sha2(key: &Vec<u8>, msg: &Vec<u8>, len: usize) -> Vec<u8> {
     let block_size: usize = 64;
     let mut key = key.clone();
     key.resize(block_size, 0);
@@ -245,11 +283,11 @@ pub fn hmac_sha256(key: &Vec<u8>, msg: &Vec<u8>) -> Vec<u8> {
     }
     
     i_key_pad.extend(msg);
-    let inner_hash = SHA2::new(256).sha256(&i_key_pad);
+    let inner_hash = SHA2::new(len).hash(&i_key_pad);
 
     let mut hmac_msg = o_key_pad.clone();
     hmac_msg.extend(inner_hash);
-    SHA2::new(256).sha256(&mut hmac_msg)
+    SHA2::new(256).hash(&mut hmac_msg)
 }
 
 pub trait VecStructU8 {
