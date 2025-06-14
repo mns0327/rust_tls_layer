@@ -44,6 +44,15 @@ pub const RCON: [u8; 10] = [
     0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1B, 0x36
 ];
 
+fn get_aes_params(key_len: usize) -> (usize, usize, usize) {
+    match key_len {
+        16 => (4, 10, 44),
+        24 => (6, 12, 52),
+        32 => (8, 14, 60),
+        _ => panic!("AES key length not supported"),
+    }
+}
+
 fn sub_bytes(state: [u8; 16]) -> [u8; 16] {
     state.iter().map(|&b| S_BOX[b as usize]).collect::<Vec<u8>>().try_into().unwrap()
 }
@@ -84,48 +93,48 @@ fn add_round_key(state: [u8; 16], key: [u8; 16]) -> [u8; 16] {
     state.iter().zip(key.iter()).map(|(s, k)| s ^ k).collect::<Vec<u8>>().try_into().unwrap()
 }
 
-fn key_expansion(key: [u8; 16]) -> Vec<u8> {
-    let mut key_columns: Vec<Vec<u8>> = (0..16).step_by(4)
-        .map(|i| key[i..i+4].to_vec())
-        .collect::<Vec<Vec<u8>>>();
+fn key_expansion(key: &[u8]) -> Vec<u8> {
+    let (nk, nr, nwords) = get_aes_params(key.len());
+    let mut key_columns: Vec<Vec<u8>> = (0..nk)
+        .map(|i| key[i*4..(i+1)*4].to_vec())
+        .collect();
 
-    let mut i = 0;
-    while key_columns.len() < 44 {
+    let mut rcon_i = 0;
+    while key_columns.len() < nwords {
         let mut word = key_columns[key_columns.len() - 1].to_vec();
-        if key_columns.len() % 4 == 0 {
+        if key_columns.len() % nk == 0 {
             word = (0..4).map(|j| S_BOX[word[(j + 1) % 4] as usize])
-                .collect::<Vec<u8>>()
-                .try_into()
-                .unwrap();
-            word[0] ^= RCON[i];
-            i += 1;
+                .collect::<Vec<u8>>();
+            word[0] ^= RCON[rcon_i];
+            rcon_i += 1;
+        } else if nk > 6 && (key_columns.len() % nk == 4) {
+            word = word.iter().map(|&b| S_BOX[b as usize]).collect();
         }
-        word = word.iter()
-            .zip(key_columns[key_columns.len() - 4].iter())
-            .map(|(a, b)| a ^ b)
-            .collect::<Vec<u8>>()
-            .try_into()
-            .unwrap();
+        let prev_word = key_columns[key_columns.len() - nk].clone();
+        word = word.iter().zip(prev_word.iter()).map(|(a, b)| a ^ b).collect();
         key_columns.push(word);
     }
 
     key_columns.iter().flatten().cloned().collect()
 }
 
-pub fn aes_encrypt_block(plaintext: [u8; 16], key: [u8; 16]) -> [u8; 16] {
-    let mut state: [u8; 16] = plaintext.clone();
-    let expanded_key: Vec<u8> = key_expansion(key);
+pub fn aes_encrypt_block(plaintext: [u8; 16], key: &[u8]) -> [u8; 16] {
+    let (_, nr, _) = get_aes_params(key.len());
+    let expanded_key = key_expansion(key);
 
-    state = add_round_key(state,expanded_key[0..16].try_into().unwrap());
-    for round in 1..10 {
-        state = sub_bytes(state).try_into().unwrap();
-        state = shift_rows(state).try_into().unwrap();
-        state = mix_columns(state).try_into().unwrap();
+    let mut state = plaintext;
+
+    state = add_round_key(state, expanded_key[0..16].try_into().unwrap());
+    for round in 1..nr {
+        state = sub_bytes(state);
+        state = shift_rows(state);
+        state = mix_columns(state);
         state = add_round_key(state, expanded_key[round*16..(round+1)*16].try_into().unwrap());
     }
-    state = sub_bytes(state).try_into().unwrap();
-    state = shift_rows(state).try_into().unwrap();
-    state = add_round_key(state, expanded_key[160..176].try_into().unwrap());
+    state = sub_bytes(state);
+    state = shift_rows(state);
+    state = add_round_key(state, expanded_key[nr*16..(nr+1)*16].try_into().unwrap());
+
     state
 }
 
@@ -172,11 +181,7 @@ pub fn inv_mix_columns(state: [u8; 16]) -> [u8; 16] {
     result.try_into().unwrap()
 }
 
-
-
-
-
-pub fn aes_decrypt_block(plaintext: [u8; 16], key: [u8; 16]) -> [u8; 16] {
+pub fn aes_decrypt_block(plaintext: [u8; 16], key: &[u8]) -> [u8; 16] {
     let mut state: [u8; 16] = plaintext.clone();
     let expanded_key: Vec<u8> = key_expansion(key);
 
@@ -197,11 +202,11 @@ pub fn aes_decrypt_block(plaintext: [u8; 16], key: [u8; 16]) -> [u8; 16] {
 pub struct AES {
     key: Vec<u8>,
     // iv
-    block_mode: fn(fn([u8; 16], [u8; 16]) -> [u8; 16], Vec<u8>, Vec<u8>, Vec<u8>, bool) -> Vec<u8>
+    block_mode: fn(fn([u8; 16], &[u8]) -> [u8; 16], Vec<u8>, Vec<u8>, Vec<u8>, bool) -> Vec<u8>
 }
 
 impl AES {
-    pub fn new(key: Vec<u8>, block_mode: fn(fn([u8; 16], [u8; 16]) -> [u8; 16], Vec<u8>, Vec<u8>, Vec<u8>, bool) -> Vec<u8>) -> Self {
+    pub fn new(key: Vec<u8>, block_mode: fn(fn([u8; 16], &[u8]) -> [u8; 16], Vec<u8>, Vec<u8>, Vec<u8>, bool) -> Vec<u8>) -> Self {
         Self { key, block_mode }
     }
 
@@ -304,8 +309,8 @@ impl AES_GCM {
     }
 
     pub fn decrypt(&self, iv: Vec<u8>, ciphertext_with_tag: Vec<u8>, aad: Vec<u8>) -> Vec<u8> {
-        let mut aes = AES::new(self.key.clone(), block_cipher::ECB_MODE);
-        let H = aes.encrypt([0; 16].to_vec());
+        let aes = AES::new(self.key.clone(), block_cipher::ECB_MODE);
+        let h: Vec<u8> = aes.encrypt([0; 16].to_vec());
         let mut J0 = iv.clone();
         J0.extend([0, 0, 0, 1]);
     
@@ -315,18 +320,16 @@ impl AES_GCM {
         let mut ctr = inc32(&J0);
         let mut plaintext = vec![];
         for i in (0..ciphertext.len() as i64).step_by(16) {
-            let mut block = vec![];
-            if i + 16 > ciphertext.len() as i64 {
-                block = ciphertext[i as usize..].to_vec();
-            } else {
-                block = ciphertext[i as usize..i as usize + 16].to_vec();
-            }
             let keystream = aes.encrypt(ctr.clone());
             ctr = inc32(&ctr);
-            plaintext.extend(block.iter().zip(keystream[..16].iter()).map(|(a, b)| a ^ b).collect::<Vec<u8>>());
+            if i + 16 > ciphertext.len() as i64 {
+                plaintext.extend(ciphertext[i as usize..].to_vec().iter().zip(keystream[..16].iter()).map(|(a, b)| a ^ b).collect::<Vec<u8>>());
+            } else {
+                plaintext.extend(ciphertext[i as usize..i as usize + 16].iter().zip(keystream[..16].iter()).map(|(a, b)| a ^ b).collect::<Vec<u8>>());
+            }
         }
         
-        let S = ghash(H, aad.clone(), ciphertext.clone());
+        let S = ghash(h, aad.clone(), ciphertext.clone());
         let computed_tag = aes.encrypt(J0.clone()).iter().zip(S.iter()).map(|(a, b)| a ^ b).collect::<Vec<u8>>();
     
         if computed_tag != tag {

@@ -11,17 +11,13 @@ mod crypto;
 mod block_cipher;
 mod bigint;
 mod aes_crypto;
-use crate::db::{TLSPlaintext, ProtocolVersion, CipherSuite, CompressionMethod, usizeToVec};
-use crate::rand::{rand, rand_len};
-use crate::hash::{VecStructU8, hmac_sha256};
+use crate::db::{TLSPlaintext, ProtocolVersion, CipherSuite, CompressionMethod, UsizeToVec};
+use crate::hash::VecStructU8;
 use crate::crypto::RSA;
 use crate::handshake::HandshakeFragment;
 use crate::db::TLSFragment;
 
-fn main() -> std::io::Result<()> {
-    let mut client_random: [u8; 32] = [0; 32];
-    let mut server_random: [u8; 32] = [0; 32];    
-
+fn main() -> std::io::Result<()> {   
     let mut steam_manager = db::TLSStreamManager::new("google.com:443");
     let mut client_hello_tls = steam_manager.send_handshake(db::Handshake_type::ClientHello)?;  // client hello
     println!("{:?}", client_hello_tls);

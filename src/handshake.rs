@@ -1,6 +1,6 @@
-use crate::{define_enum_macro, TLSPlaintext, ProtocolVersion, CipherSuite, CompressionMethod, usizeToVec};
+use crate::{define_enum_macro, TLSPlaintext, ProtocolVersion, CipherSuite, CompressionMethod, UsizeToVec};
 use crate::rand::rand;
-use crate::hash::{VecStructU8, hmac_sha256};
+use crate::hash::VecStructU8;
 use crate::x509::Certificate;
 
 define_enum_macro! {

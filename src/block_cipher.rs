@@ -1,4 +1,4 @@
-pub fn ECB_MODE(cipher_func: fn([u8; 16], [u8; 16]) -> [u8; 16], data: Vec<u8>, key: Vec<u8>, iv: Vec<u8>, mode: bool) -> Vec<u8> {
+pub fn ECB_MODE(cipher_func: fn([u8; 16], &[u8]) -> [u8; 16], data: Vec<u8>, key: Vec<u8>, iv: Vec<u8>, mode: bool) -> Vec<u8> {
     let mut result: Vec<u8> = Vec::new();
     let bytes_data: Vec<u8>;
     if mode {
@@ -7,7 +7,7 @@ pub fn ECB_MODE(cipher_func: fn([u8; 16], [u8; 16]) -> [u8; 16], data: Vec<u8>, 
         bytes_data = data.clone();
     }
     for i in (0..bytes_data.len()).step_by(16) {
-        result.extend(cipher_func(bytes_data[i..i+16].try_into().unwrap(), key.clone().try_into().unwrap()));
+        result.extend(cipher_func(bytes_data[i..i+16].try_into().unwrap(), &key));
     }
     if !mode {
         result = unpad(result)

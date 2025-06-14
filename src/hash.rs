@@ -1,4 +1,5 @@
 use core::panic;
+use std::hash::Hash;
 
 pub struct SHA2 {
     len: usize,
@@ -266,7 +267,7 @@ pub const SHA2_64_K: [u64; 80] = [
 ];
 
 pub fn hmac_sha2(key: &Vec<u8>, msg: &Vec<u8>, len: usize) -> Vec<u8> {
-    let block_size: usize = 64;
+    let block_size: usize = if len <= 256 { 64 } else { 128 };
     let mut key = key.clone();
     key.resize(block_size, 0);
 
@@ -287,7 +288,7 @@ pub fn hmac_sha2(key: &Vec<u8>, msg: &Vec<u8>, len: usize) -> Vec<u8> {
 
     let mut hmac_msg = o_key_pad.clone();
     hmac_msg.extend(inner_hash);
-    SHA2::new(256).hash(&mut hmac_msg)
+    SHA2::new(len).hash(&mut hmac_msg)
 }
 
 pub trait VecStructU8 {

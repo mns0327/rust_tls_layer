@@ -1,7 +1,7 @@
 use std::fmt::{self, write};
 use crate::net;
 use crate::rand;
-use crate::hash::{self, hmac_sha256, VecStructU8};
+use crate::hash::{self, VecStructU8};
 use crate::handshake::{HandshakeType, Handshake, ClientKeyExchange, HandshakeFragment, Finished};
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -110,30 +110,28 @@ define_enum_macro! {
         // TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 = 0xcca8,
         // TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256 = 0xc023,
         // TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256 = 0xc027,
-        TLS_RSA_WITH_AES_128_GCM_SHA256 = 0x9c,
+        // TLS_RSA_WITH_AES_128_GCM_SHA256 = 0x9c,
         // TLS_RSA_WITH_AES_128_CBC_SHA256 = 0x3c,
         // TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 = 0xc02c,
         // TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384 = 0xc024,
         // TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 = 0xc030,
         // TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384 = 0xc028,
-        // TLS_RSA_WITH_AES_256_GCM_SHA384 = 0x9d,
+        TLS_RSA_WITH_AES_256_GCM_SHA384 = 0x9d,
         // TLS_RSA_WITH_AES_256_CBC_SHA256 = 0x3d
     }
 }
 
 impl CipherSuite {
-    pub fn parse(self) {
-        let mut cipher_str = self.to_string();
-        cipher_str = cipher_str.replace("TLS_", "");
-        let mut cipher_str_vec = cipher_str.split("_WITH_");
-        let key_exchange = cipher_str_vec.next().unwrap();
-        let cipher = cipher_str_vec.next().unwrap();
-        println!("{}", key_exchange);
-        println!("{}", cipher);
+    pub fn get_key_block_info(self) -> (usize, usize) {
+        match self {
+            // CipherSuite::TLS_RSA_WITH_AES_128_GCM_SHA256 => (16, 4),
+            CipherSuite::TLS_RSA_WITH_AES_256_GCM_SHA384 => (32, 4),
+            _ => (0, 0)
+        }
     }
 
-    pub fn get_key_block_info(self) -> (usize, usize) {
-        (16, 4)
+    pub fn get_hash_len(self) -> usize {
+        self.to_string().split("_").last().unwrap().replace("SHA", "").parse::<usize>().unwrap()
     }
 }
 
@@ -224,18 +222,18 @@ pub struct TLSPlaintext {
 
 impl TLSPlaintext {
     pub fn new(content_type: u8, version: ProtocolVersion) -> Self {
-        let contentType = ContentType::from_u16(content_type as u16).unwrap();
+        let content_type = ContentType::from_u16(content_type as u16).unwrap();
 
-        let fragment =  match contentType {
+        let fragment =  match content_type {
             ContentType::alert => { TLSFragment::Alert(Alert::new()) }
             ContentType::handshake => { TLSFragment::Handshake(Handshake::new(1)) }
             ContentType::application_data => { TLSFragment::ApplicationData(ApplicationData::new(vec![])) }
             ContentType::change_cipher_spec => { TLSFragment::ChangeCipherSpec(ChangeCipherSpec::new()) }
-            _ => { panic!("Unsupported content type: {:?}", contentType) }
+            _ => { panic!("Unsupported content type: {:?}", content_type) }
         };
 
         Self { 
-            content_type: contentType, 
+            content_type, 
             version, 
             length: 0, 
             fragment 
@@ -312,11 +310,11 @@ impl TLSPlaintext {
     }
 }
 
-pub trait usizeToVec {
+pub trait UsizeToVec {
     fn to_vec(&self, padding: usize) -> Vec<u8>; 
 }
 
-impl usizeToVec for usize {
+impl UsizeToVec for usize {
     fn to_vec(&self, padding: usize) -> Vec<u8> {
         let mut vec = Vec::<u8>::with_capacity(padding);
         vec.resize(padding, 0);
@@ -383,9 +381,8 @@ impl HandshakeHash {
         self.data.extend(handshake_data);
     }
 
-    // pub fn digest(&self, digest)
-    pub fn digest(&self) -> Vec<u8> {
-        hash::sha256(&self.data)
+    pub fn digest(&self, len: usize) -> Vec<u8> {
+        hash::SHA2::new(len).hash(&self.data)
     }
 }
 
@@ -395,26 +392,15 @@ pub struct TLSStreamManager {
     pub spec_change: u8,        // 0x01: client, 0x10: server
     pub security_parameters: SecurityParameters,
     pub seq_num: u64,
+    pub hash_len: usize,
 }
 
 impl TLSStreamManager {
     pub fn new(server_url: &str) -> Self {
         let stream = TcpStream::connect(server_url).unwrap();
         let handshake_hash = HandshakeHash::new();
-        Self{ stream, handshake_hash, spec_change: 0x00, security_parameters: SecurityParameters::new(), seq_num: 0 }
+        Self{ stream, handshake_hash, spec_change: 0x00, security_parameters: SecurityParameters::new(), seq_num: 0, hash_len: 0 }
     }
-    
-    // pub fn send(&mut self, tls_vec: &mut TLSPlaintext) -> Result<(), Error> {
-    //     // if self.spec_change & 0x01 != 0 {
-    //     //     let encrypted = self.encrypt(tls_vec.clone())?;
-    //     //     let mut tls = TLSPlaintext::new_handshake_data(ProtocolVersion::new(3, 3), encrypted.clone());
-    //     //     println!("tls: {:?}", tls.to_vec().hex_display());
-    //     //     self.stream.write(&tls.to_vec())?;
-    //     // // } else {
-    //     self.stream.write(&tls_vec.to_vec())?;
-    //     // }
-    //     Ok(())
-    // }
 
     pub fn send(&mut self, tls: &mut TLSPlaintext) -> Result<TLSPlaintext, Error> {
         if self.spec_change & 0x01 != 0 {
@@ -444,25 +430,25 @@ impl TLSStreamManager {
             let mut seed: Vec<u8> = vec![];
             seed.extend(&self.security_parameters.client_random);
             seed.extend(&self.security_parameters.server_random);
-    
-            self.security_parameters.master_secret = crypto::prf(pms.clone(), b"master secret".to_vec(), seed, 48);
             
+            self.security_parameters.master_secret = crypto::prf(pms.clone(), b"master secret".to_vec(), seed, 48, self.hash_len);
+
             let mut seed: Vec<u8> = self.security_parameters.server_random.to_vec();
             seed.extend(&self.security_parameters.client_random);
 
             let key_block_len: usize = self.security_parameters.key_len * 2 + self.security_parameters.iv_len * 2;
-            let key_block: Vec<u8> = crypto::prf(self.security_parameters.master_secret.clone(), b"key expansion".to_vec(), seed, key_block_len);
+            let key_block: Vec<u8> = crypto::prf(self.security_parameters.master_secret.clone(), b"key expansion".to_vec(), seed, key_block_len, self.hash_len);
             self.security_parameters.client_write_key = key_block[0..self.security_parameters.key_len].to_vec();
             self.security_parameters.server_write_key = key_block[self.security_parameters.key_len..self.security_parameters.key_len * 2].to_vec();
             self.security_parameters.client_write_iv = key_block[self.security_parameters.key_len * 2..self.security_parameters.key_len * 2 + self.security_parameters.iv_len].to_vec();
             self.security_parameters.server_write_iv = key_block[self.security_parameters.key_len * 2 + self.security_parameters.iv_len..self.security_parameters.key_len * 2 + self.security_parameters.iv_len * 2].to_vec();
 
-            println!("public_key: {:?}", self.security_parameters.public_key);
             let encrypted = crypto::RSA::encrypt(&pms, &self.security_parameters.public_key.n, &self.security_parameters.public_key.e);
 
             tls = TLSPlaintext::new_handshake_client_key_exchange(ProtocolVersion::new(3, 3), encrypted);
         } else if handshake_type == Handshake_type::Finished {
-            let verify_data = crypto::prf(self.security_parameters.master_secret.clone(), b"client finished".to_vec(), self.handshake_hash.digest().to_vec(), 12);
+            println!("handshake_hash: {:?}", self.handshake_hash.digest(self.hash_len).to_vec().hex_display());
+            let verify_data = crypto::prf(self.security_parameters.master_secret.clone(), b"client finished".to_vec(), self.handshake_hash.digest(self.hash_len).to_vec(), 12, self.hash_len);
             tls = TLSPlaintext::new_handshake_finished(ProtocolVersion::new(3, 3), verify_data);
         } else {
             panic!("Unsupported handshake type: {:?}", handshake_type);
@@ -502,7 +488,7 @@ impl TLSStreamManager {
         let mut handshake_buffer: Vec<u8> = vec![0 as u8; handshake_len as usize];
         self.stream.read(&mut handshake_buffer)?;
         buffer.extend(handshake_buffer);
-        
+
         let mut tls: TLSPlaintext;
 
         if self.spec_change & 0x10 != 0 {
@@ -531,6 +517,7 @@ impl TLSStreamManager {
                 self.security_parameters.server_random = server_hello.random.to_vec();
                 let (key_len, iv_len) = server_hello.chosen_cipher.get_key_block_info();
                 self.security_parameters.set_key_lens(key_len, iv_len);
+                self.hash_len = server_hello.chosen_cipher.get_hash_len();
             } else if let HandshakeFragment::Certificate(certificate) = &handshake.fragment {
                 self.security_parameters.public_key = certificate.tbsCertificate[0].tbsCertificate.subject_public_key_info.publicKey.clone();
             }
@@ -538,8 +525,8 @@ impl TLSStreamManager {
 
         if let TLSFragment::Handshake(handshake) = &tls.fragment {
             if let HandshakeFragment::Finished(finished) = &handshake.fragment {
-                println!("handshake_hash: {:?}", self.handshake_hash.digest().to_vec().hex_display());
-                let verify_data = crypto::prf(self.security_parameters.master_secret.clone(), b"server finished".to_vec(), self.handshake_hash.digest().to_vec(), 12);
+                println!("handshake_hash: {:?}", self.handshake_hash.digest(self.hash_len).to_vec().hex_display());
+                let verify_data = crypto::prf(self.security_parameters.master_secret.clone(), b"server finished".to_vec(), self.handshake_hash.digest(self.hash_len).to_vec(), 12, self.hash_len);
                 if finished.verify_data == verify_data {
                     println!("finished verified!: {:?}", finished.verify_data.hex_display());
                 } else {
