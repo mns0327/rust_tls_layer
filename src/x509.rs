@@ -1,6 +1,6 @@
 use std::io::Error;
 use std::fmt;
-use crate::hash::VecStructU8;
+use types::VecStructU8;
 
 pub fn wrap_with_sequence(tag: u8, vec_data: Vec<u8>) -> Vec<u8> {
     let mut vec: Vec<u8> = Vec::new();

@@ -3,5 +3,20 @@
 version = 4
 
 [[package]]
+name = "aes"
+version = "0.1.0"
+dependencies = [
+ "types",
+]
+
+[[package]]
 name = "tls_layer"
+version = "0.1.0"
+dependencies = [
+ "aes",
+ "types",
+]
+
+[[package]]
+name = "types"
 version = "0.1.0"

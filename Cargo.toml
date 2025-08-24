@@ -3,4 +3,12 @@ name = "tls_layer"
 version = "0.1.0"
 edition = "2024"
 
+[workspace]
+members = [
+    "src/types",
+    "src/aes"
+]
+
 [dependencies]
+aes = { path = "src/aes" }
+types = { path = "src/types" }

@@ -1,7 +1,7 @@
 use crate::hash;
 use crate::rand::rand_len;
 use crate::bigint::BigInt;
-use crate::block_cipher;
+use types::block_cipher;
 
 pub trait RSA {
     fn encrypt(&self, n: &Vec<u8>, e: &Vec<u8>) -> Vec<u8>;

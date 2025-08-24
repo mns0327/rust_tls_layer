@@ -8,13 +8,10 @@ mod db;
 mod net;
 mod handshake;
 mod crypto;
-mod block_cipher;
 mod bigint;
-mod aes_crypto;
+use aes;
 use crate::db::{TLSPlaintext, ProtocolVersion, CipherSuite, CompressionMethod, UsizeToVec};
-use crate::hash::VecStructU8;
-use crate::crypto::RSA;
-use crate::handshake::HandshakeFragment;
+use types::VecStructU8;
 use crate::db::TLSFragment;
 
 fn main() -> std::io::Result<()> {   

@@ -291,43 +291,6 @@ pub fn hmac_sha2(key: &Vec<u8>, msg: &Vec<u8>, len: usize) -> Vec<u8> {
     SHA2::new(len).hash(&mut hmac_msg)
 }
 
-pub trait VecStructU8 {
-    fn to_u32_vec(&self) -> Vec<u32>;
-    fn hex_display(&self) -> String;
-}
-
-impl VecStructU8 for Vec<u8> {
-    fn to_u32_vec(&self) -> Vec<u32> {
-        let mut result = Vec::new();
-        for chunk in self.chunks(4) {
-            let mut bytes = [0u8; 4];
-            for (i, &byte) in chunk.iter().enumerate() {
-                bytes[i] = byte;
-            }
-            result.push(u32::from_be_bytes(bytes));
-        }
-        result
-    }
-
-    fn hex_display(&self) -> String {
-        self.iter().map(|b| format!("{:02x}", b)).collect::<Vec<String>>().join("")
-    }
-}
-
-trait VecStructU32 {
-    fn to_u8_vec(&self) -> Vec<u8>;
-}
-
-impl VecStructU32 for Vec<u32> {
-    fn to_u8_vec(&self) -> Vec<u8> {
-        let mut result = Vec::new();
-        for &val in self {
-            result.extend_from_slice(&val.to_be_bytes());
-        }
-        result
-    }
-}
-
 fn rotr(x: u64, n: usize, w: usize) -> u64 {
     if w == 4 {
         ((x as u32).rotate_right(n as u32)) as u64

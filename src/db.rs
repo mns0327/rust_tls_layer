@@ -1,14 +1,19 @@
 use std::fmt::{self, write};
 use crate::net;
 use crate::rand;
-use crate::hash::{self, VecStructU8};
+use crate::hash;
 use crate::handshake::{HandshakeType, Handshake, ClientKeyExchange, HandshakeFragment, Finished};
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use crate::crypto;
 use crate::x509;
-use crate::aes_crypto;
 use std::io::{Error, ErrorKind};
+use aes;
+use types::{
+    VecStructU8,
+    EncryptStruct,
+    DecryptStruct
+};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ProtocolVersion {
@@ -510,7 +515,6 @@ impl TLSStreamManager {
         } else {
             tls = TLSPlaintext::from_vec(buffer);
         }
-    
 
         if let TLSFragment::Handshake(handshake) = &tls.fragment {
             if let HandshakeFragment::ServerHello(server_hello) = &handshake.fragment {
@@ -553,13 +557,16 @@ impl TLSStreamManager {
         let explicit_nonce: Vec<u8> = rand::rand_len(8);
         nonce.extend(&explicit_nonce);
     
-        let aes_gcm = aes_crypto::AES_GCM::new(self.security_parameters.client_write_key.clone());
+        let aes_gcm = aes::AesGcm::new(self.security_parameters.client_write_key.clone());
 
         let mut aad: Vec<u8> = u64::to_be_bytes(self.seq_num).to_vec();
         aad.extend([content_type.to_vec()[1]]);
         aad.extend([0x03, 0x03]);
         aad.extend(u16::to_be_bytes((data.len()) as u16));
-        let encrypted = aes_gcm.encrypt(nonce.clone(), data.clone(), aad.clone());
+
+        let params = aes::AesGcmParams{iv: nonce, aad};
+        
+        let encrypted = aes_gcm.encrypt(data, &params);
     
         let mut encrypted_data: Vec<u8> = explicit_nonce;
         encrypted_data.extend(encrypted.clone());
@@ -571,14 +578,16 @@ impl TLSStreamManager {
         let mut nonce: Vec<u8> = self.security_parameters.server_write_iv.clone();
         nonce.extend(&data[..8]);
 
-        let aes_gcm = aes_crypto::AES_GCM::new(self.security_parameters.server_write_key.clone());
+        let aes_gcm = aes::AesGcm::new(self.security_parameters.server_write_key.clone());
 
         let mut aad: Vec<u8> = u64::to_be_bytes(self.seq_num).to_vec();
         aad.extend([content_type.to_vec()[1]]);
         aad.extend([0x03, 0x03]);
         aad.extend(u16::to_be_bytes((data.len() - 8 - 16) as u16));
 
-        let decrypted = aes_gcm.decrypt(nonce.clone(), data[8..].to_vec(), aad.clone());
+        let params = aes::AesGcmParams{iv: nonce, aad};
+
+        let decrypted = aes_gcm.decrypt(data[8..].to_vec(), &params);
         self.seq_num += 1;
 
         Ok(decrypted)

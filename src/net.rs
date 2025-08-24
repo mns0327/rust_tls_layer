@@ -2,7 +2,7 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::io::Error;
 use crate::db;
-use crate::hash::VecStructU8;
+use types::VecStructU8;
 
 pub fn write_tls(stream: &mut TcpStream, tls: &mut db::TLSPlaintext) -> Result<(), Error> {
     if tls.content_type == db::ContentType::handshake {
